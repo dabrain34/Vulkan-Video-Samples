@@ -313,11 +313,29 @@ void VulkanVideoProcessor::DumpVideoFormat(const VkParserDetectedVideoFormat* vi
         "SMPTE240M",
         "GenericFilm",
         "BT2020",
+        "XYZ",           // SMPTE 428 (CIE 1921 XYZ)
+        "SMPTE431",      // SMPTE RP 431-2
+        "SMPTE432",      // SMPTE EG 432-1
+        "RESERVED13",    // For future use (values 13 - 21)
+        "RESERVED14",
+        "RESERVED15",
+        "RESERVED16",
+        "RESERVED17",
+        "RESERVED18",
+        "RESERVED19",
+        "RESERVED20",
+        "RESERVED21",
+        "EBU3213",       // EBU Tech. 3213-E
+        "RESERVED23",    // For future use (values 23 - 255)
     };
-    assert(videoFormat->video_signal_description.color_primaries < sizeof(ColorPrimaries)/sizeof(ColorPrimaries[0]));
-    const char* pColorPrimaries = ColorPrimaries[videoFormat->video_signal_description.color_primaries];
+    const char* pColorPrimaries;
+    if (videoFormat->video_signal_description.color_primaries < sizeof(ColorPrimaries)/sizeof(ColorPrimaries[0])) {
+        pColorPrimaries = ColorPrimaries[videoFormat->video_signal_description.color_primaries];
+    } else {
+        pColorPrimaries = "Unknown";
+    }
     if (dumpData) {
-        std::cout << "ColorPrimaries : " << pColorPrimaries << std::endl;
+        std::cout << "ColorPrimaries : " << pColorPrimaries << " (value: " << (int)videoFormat->video_signal_description.color_primaries << ")" << std::endl;
     }
 
     const char* TransferCharacteristics[] = {
@@ -339,11 +357,17 @@ void VulkanVideoProcessor::DumpVideoFormat(const VkParserDetectedVideoFormat* vi
         "BT2020_2",
         "ST2084",
         "ST428_1",
+        "HLG",
+        "RESERVED19",
     };
-    assert(videoFormat->video_signal_description.transfer_characteristics < sizeof(TransferCharacteristics)/sizeof(TransferCharacteristics[0]));
-    const char* pTransferCharacteristics = TransferCharacteristics[videoFormat->video_signal_description.transfer_characteristics];
+    const char* pTransferCharacteristics;
+    if (videoFormat->video_signal_description.transfer_characteristics < sizeof(TransferCharacteristics)/sizeof(TransferCharacteristics[0])) {
+        pTransferCharacteristics = TransferCharacteristics[videoFormat->video_signal_description.transfer_characteristics];
+    } else {
+        pTransferCharacteristics = "Unknown";
+    }
     if (dumpData) {
-        std::cout << "TransferCharacteristics : " << pTransferCharacteristics << std::endl;
+        std::cout << "TransferCharacteristics : " << pTransferCharacteristics << " (value: " << (int)videoFormat->video_signal_description.transfer_characteristics << ")" << std::endl;
     }
 
     const char* MatrixCoefficients[] = {
@@ -358,11 +382,20 @@ void VulkanVideoProcessor::DumpVideoFormat(const VkParserDetectedVideoFormat* vi
         "YCgCo",
         "BT2020_NCL",
         "BT2020_CL",
+        "SMPTE2085",
+        "CHROMAT_NCL",
+        "CHROMAT_CL",
+        "ICTCP",
+        "RESERVED15",
     };
-    assert(videoFormat->video_signal_description.matrix_coefficients < sizeof(MatrixCoefficients)/sizeof(MatrixCoefficients[0]));
-    const char* pMatrixCoefficients = MatrixCoefficients[videoFormat->video_signal_description.matrix_coefficients];
+    const char* pMatrixCoefficients;
+    if (videoFormat->video_signal_description.matrix_coefficients < sizeof(MatrixCoefficients)/sizeof(MatrixCoefficients[0])) {
+        pMatrixCoefficients = MatrixCoefficients[videoFormat->video_signal_description.matrix_coefficients];
+    } else {
+        pMatrixCoefficients = "Unknown";
+    }
     if (dumpData) {
-        std::cout << "MatrixCoefficients : " << pMatrixCoefficients << std::endl;
+        std::cout << "MatrixCoefficients : " << pMatrixCoefficients << " (value: " << (int)videoFormat->video_signal_description.matrix_coefficients << ")" << std::endl;
     }
 }
 
