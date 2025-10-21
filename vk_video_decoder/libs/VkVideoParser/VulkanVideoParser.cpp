@@ -1285,7 +1285,9 @@ int32_t VulkanVideoParser::BeginSequence(const VkParserSequenceInfo* pnvsi)
         if (m_dpb.getMaxSize() < configDpbSlots)
         {
             m_maxNumDpbSlots = m_dpb.Init(configDpbSlots, false);
+
         }
+        m_pictureToDpbSlotMap.fill(-1);
     } else {
         assert(!"Codec DPB management not fully implemented");
     }
@@ -1805,7 +1807,10 @@ uint32_t VulkanVideoParser::FillDpbAV1State(
             continue;
         }
         int8_t dpbSlot = GetPicDpbSlot(picIdx);
-        assert(dpbSlot >= 0);
+        if (dpbSlot < 0) {
+            // Skip invalid references (valid for keyframes with no available references)
+            continue;
+        }
         //pKhr->referenceNameSlotIndices[refName] = dpbSlot;
         activeReferences[dpbSlot]++;
         //hdr.delta_frame_id_minus_1[dpbSlot] = pin->delta_frame_id_minus_1[pin->ref_frame_idx[i]];
@@ -1816,8 +1821,6 @@ uint32_t VulkanVideoParser::FillDpbAV1State(
         int8_t dpbSlot = -1;
         if ((picIdx >= 0) && !(refDpbUsedAndValidMask & (1 << picIdx))) {
             dpbSlot = GetPicDpbSlot(picIdx);
-
-            assert(dpbSlot >= 0); // There is still content hitting this assert.
             if (dpbSlot < 0) {
                 continue;
             }
@@ -2529,7 +2532,10 @@ bool VulkanVideoParser::DecodePicture(
             }
 
             int8_t dpbSlot = GetPicDpbSlot(picIdx);
-            assert(dpbSlot >= 0);
+            if (dpbSlot < 0) {
+                pPictureInfo->referenceNameSlotIndices[i] = -1;
+                continue;
+            }
             pPictureInfo->referenceNameSlotIndices[i] = dpbSlot;
         }
 
