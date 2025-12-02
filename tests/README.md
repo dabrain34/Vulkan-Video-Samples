@@ -17,6 +17,34 @@ This directory contains a comprehensive testing framework for Vulkan Video codec
 - **`decode_samples.json`** - Decoder test definitions with codec samples
 - **`denied_samples.json`** - Test deny list with conditions for skipping tests
 
+### Unit Tests
+
+The `unit_tests/` directory contains pytest-based tests that validate the framework itself without running actual video encoding/decoding.
+
+#### Running Unit Tests
+
+```bash
+# Run all unit tests
+pytest tests/unit_tests/ -v
+
+# Run specific test file
+pytest tests/unit_tests/test_cli.py -v
+
+# Run tests matching a pattern
+pytest tests/unit_tests/ -v -k "deny"
+```
+
+#### Test Coverage
+
+| File | Description |
+|------|-------------|
+| `test_cli.py` | CLI argument parsing and option handling |
+| `test_deny_list.py` | Deny list pattern matching and filtering |
+| `test_filter_suite.py` | Test suite filtering by codec, pattern, and deny rules |
+| `test_sample_configs.py` | Sample configuration classes (DecodeSample, EncodeTestSample) |
+| `test_status_determination.py` | Return code to test status mapping |
+| `test_utils.py` | Utility functions (file hashing, checksum verification) |
+
 
 
 ### Decode Samples Format
