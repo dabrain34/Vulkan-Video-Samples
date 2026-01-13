@@ -18,6 +18,7 @@
 #define _VULKANDESCRIPTORSETLAYOUT_H_
 
 #include <sstream>
+#include <cstdio>
 #include <vulkan_interfaces.h>
 #include "VkCodecUtils/VulkanDeviceContext.h"
 #include "VkCodecUtils/VkBufferResource.h"
@@ -267,18 +268,43 @@ public:
                                                                &dstBindingOffset);
 
             size_t descriptorSize = m_descriptorBufferProperties.storageImageDescriptorSize;
+#ifndef NDEBUG
+            // Log all available sizes once for validation
+            static bool sizesLogged = false;
+            if (!sizesLogged) {
+                fprintf(stderr, "[DEBUG] Descriptor sizes from VkPhysicalDeviceDescriptorBufferPropertiesEXT:\n");
+                fprintf(stderr, "[DEBUG]   SAMPLER size=%zu\n", m_descriptorBufferProperties.samplerDescriptorSize);
+                fprintf(stderr, "[DEBUG]   COMBINED_IMAGE_SAMPLER size=%zu\n", m_descriptorBufferProperties.combinedImageSamplerDescriptorSize);
+                fprintf(stderr, "[DEBUG]   SAMPLED_IMAGE size=%zu\n", m_descriptorBufferProperties.sampledImageDescriptorSize);
+                fprintf(stderr, "[DEBUG]   STORAGE_IMAGE size=%zu\n", m_descriptorBufferProperties.storageImageDescriptorSize);
+                sizesLogged = true;
+            }
+            fprintf(stderr, "[DEBUG] UpdateDescriptorBuffer: type=%d\n", pDescriptorWrite->descriptorType);
+#endif
             switch (pDescriptorWrite->descriptorType) {
             case VK_DESCRIPTOR_TYPE_SAMPLER:
                 descriptorSize = m_descriptorBufferProperties.samplerDescriptorSize;
+#ifndef NDEBUG
+                fprintf(stderr, "[DEBUG]   -> SAMPLER size=%zu\n", descriptorSize);
+#endif
                 break;
             case VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER:
                 descriptorSize = m_descriptorBufferProperties.combinedImageSamplerDescriptorSize;
+#ifndef NDEBUG
+                fprintf(stderr, "[DEBUG]   -> COMBINED_IMAGE_SAMPLER size=%zu\n", descriptorSize);
+#endif
                 break;
             case VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE:
                 descriptorSize = m_descriptorBufferProperties.sampledImageDescriptorSize;
+#ifndef NDEBUG
+                fprintf(stderr, "[DEBUG]   -> SAMPLED_IMAGE size=%zu\n", descriptorSize);
+#endif
                 break;
             case VK_DESCRIPTOR_TYPE_STORAGE_IMAGE:
                 descriptorSize = m_descriptorBufferProperties.storageImageDescriptorSize;
+#ifndef NDEBUG
+                fprintf(stderr, "[DEBUG]   -> STORAGE_IMAGE size=%zu\n", descriptorSize);
+#endif
                 break;
             default:
                 assert(!"Unknown descriptor type");

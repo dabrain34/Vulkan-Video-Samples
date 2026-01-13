@@ -658,6 +658,31 @@ VkResult VulkanDeviceContext::InitPhysicalDevice(int32_t deviceId, const vk::Dev
                     PrintExtensions(true);
                 }
 
+                // Print descriptor buffer properties if the extension is available
+                if (FindRequiredDeviceExtension(VK_EXT_DESCRIPTOR_BUFFER_EXTENSION_NAME)) {
+                    VkPhysicalDeviceDescriptorBufferPropertiesEXT descriptorBufferProps{};
+                    descriptorBufferProps.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DESCRIPTOR_BUFFER_PROPERTIES_EXT;
+                    VkPhysicalDeviceProperties2 props2{};
+                    props2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2;
+                    props2.pNext = &descriptorBufferProps;
+                    GetPhysicalDeviceProperties2(physicalDevice, &props2);
+
+                    fprintf(stderr, "[DEBUG] Descriptor sizes from VkPhysicalDeviceDescriptorBufferPropertiesEXT:\n");
+                    fprintf(stderr, "[DEBUG]   SAMPLER size=%zu\n", descriptorBufferProps.samplerDescriptorSize);
+                    fprintf(stderr, "[DEBUG]   COMBINED_IMAGE_SAMPLER size=%zu\n", descriptorBufferProps.combinedImageSamplerDescriptorSize);
+                    fprintf(stderr, "[DEBUG]   SAMPLED_IMAGE size=%zu\n", descriptorBufferProps.sampledImageDescriptorSize);
+                    fprintf(stderr, "[DEBUG]   STORAGE_IMAGE size=%zu\n", descriptorBufferProps.storageImageDescriptorSize);
+
+                    fprintf(stderr, "[DEBUG] VkPhysicalDeviceDescriptorBufferPropertiesEXT:\n");
+                    fprintf(stderr, "[DEBUG]   samplerDescriptorSize: %zu\n", descriptorBufferProps.samplerDescriptorSize);
+                    fprintf(stderr, "[DEBUG]   combinedImageSamplerDescriptorSize: %zu\n", descriptorBufferProps.combinedImageSamplerDescriptorSize);
+                    fprintf(stderr, "[DEBUG]   sampledImageDescriptorSize: %zu\n", descriptorBufferProps.sampledImageDescriptorSize);
+                    fprintf(stderr, "[DEBUG]   storageImageDescriptorSize: %zu\n", descriptorBufferProps.storageImageDescriptorSize);
+                    fprintf(stderr, "[DEBUG]   uniformBufferDescriptorSize: %zu\n", descriptorBufferProps.uniformBufferDescriptorSize);
+                    fprintf(stderr, "[DEBUG]   storageBufferDescriptorSize: %zu\n", descriptorBufferProps.storageBufferDescriptorSize);
+                    fprintf(stderr, "[DEBUG]   descriptorBufferOffsetAlignment: %zu\n", descriptorBufferProps.descriptorBufferOffsetAlignment);
+                }
+
                 if (verbose) {
 
                     vk::DeviceUuidUtils currentDeviceUuid(deviceVulkan11Properties.deviceUUID);

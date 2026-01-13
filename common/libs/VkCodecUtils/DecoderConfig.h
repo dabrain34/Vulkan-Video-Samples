@@ -31,6 +31,9 @@
 #include "VkCodecUtils/Helpers.h"
 #include "VkVSVersion.h"
 
+// Global descriptor mode override (defined in VulkanDescriptorSetLayout.cpp)
+extern int g_descriptorModeOverride;
+
 struct DecoderConfig {
 
      struct ArgSpec {
@@ -291,6 +294,24 @@ struct DecoderConfig {
             {"--direct", nullptr, 0, "Direct to display mode",
                 [this](const char **args, const ProgramArgs &a) {
                     directMode = true;
+                    return true;
+                }},
+            {"--descriptor-mode", nullptr, 1,
+                "Force descriptor mode: auto (default), push, buffer, standard",
+                [](const char **args, const ProgramArgs &) {
+                    if (strcmp(args[0], "auto") == 0) {
+                        g_descriptorModeOverride = 0;
+                    } else if (strcmp(args[0], "push") == 0) {
+                        g_descriptorModeOverride = 1;
+                    } else if (strcmp(args[0], "buffer") == 0) {
+                        g_descriptorModeOverride = 2;
+                    } else if (strcmp(args[0], "standard") == 0) {
+                        g_descriptorModeOverride = 3;
+                    } else {
+                        std::cerr << "Invalid descriptor mode: " << args[0]
+                                  << ". Use: auto, push, buffer, standard" << std::endl;
+                        return false;
+                    }
                     return true;
                 }},
             {"--y4m", nullptr, 0, "Output to a Y4M container for easier loading by tools",

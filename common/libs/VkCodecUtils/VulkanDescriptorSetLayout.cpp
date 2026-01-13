@@ -17,6 +17,13 @@
 #include "VulkanDescriptorSetLayout.h"
 #include "VkCodecUtils/Helpers.h" // for alignedSize
 
+// Global descriptor mode override for testing
+// 0 = auto (default), 1 = push, 2 = buffer, 3 = standard
+#if defined(__GNUC__) || defined(__clang__)
+__attribute__((visibility("default")))
+#endif
+int g_descriptorModeOverride = 0;
+
 VkResult VulkanDescriptorSetLayout::CreateFragmentShaderLayouts(const uint32_t* setIds, uint32_t numSets, std::stringstream& imageFss)
 {
     const VkDescriptorSetLayoutCreateInfo* pDescriptorSetEntries = m_descriptorSetLayoutInfo.GetCreateInfo();
@@ -81,12 +88,23 @@ VkResult VulkanDescriptorSetLayout::CreateDescriptorSet(const VulkanDeviceContex
     m_maxNumFrames = maxNumFrames;
 
     if (autoSelectdescriptorSetLayoutCreateFlags) {
-        if (m_vkDevCtx->FindRequiredDeviceExtension(VK_KHR_PUSH_DESCRIPTOR_EXTENSION_NAME)) {
+        // Check for forced mode override (for testing)
+        if (g_descriptorModeOverride == 1) {
             descriptorSetLayoutCreateFlags = VK_DESCRIPTOR_SET_LAYOUT_CREATE_PUSH_DESCRIPTOR_BIT_KHR;
-        } else if (m_vkDevCtx->FindRequiredDeviceExtension(VK_EXT_DESCRIPTOR_BUFFER_EXTENSION_NAME)){
+        } else if (g_descriptorModeOverride == 2) {
             descriptorSetLayoutCreateFlags = VK_DESCRIPTOR_SET_LAYOUT_CREATE_DESCRIPTOR_BUFFER_BIT_EXT;
-        } else {
+            fprintf(stderr, "[DEBUG] Using DESCRIPTOR_BUFFER mode (forced via --descriptor-mode buffer)\n");
+        } else if (g_descriptorModeOverride == 3) {
             descriptorSetLayoutCreateFlags = 0;
+        } else {
+            // Original auto-detection: push descriptors have priority
+            if (m_vkDevCtx->FindRequiredDeviceExtension(VK_KHR_PUSH_DESCRIPTOR_EXTENSION_NAME)) {
+                descriptorSetLayoutCreateFlags = VK_DESCRIPTOR_SET_LAYOUT_CREATE_PUSH_DESCRIPTOR_BIT_KHR;
+            } else if (m_vkDevCtx->FindRequiredDeviceExtension(VK_EXT_DESCRIPTOR_BUFFER_EXTENSION_NAME)){
+                descriptorSetLayoutCreateFlags = VK_DESCRIPTOR_SET_LAYOUT_CREATE_DESCRIPTOR_BUFFER_BIT_EXT;
+            } else {
+                descriptorSetLayoutCreateFlags = 0;
+            }
         }
     }
     m_descriptorSetLayoutInfo.SetDescriptorSetLayoutInfo(descriptorSetLayoutBindings, descriptorSetLayoutCreateFlags);
@@ -120,10 +138,22 @@ VkResult VulkanDescriptorSetLayout::CreateDescriptorSet(const VulkanDeviceContex
 
         m_vkDevCtx->GetDescriptorSetLayoutSizeEXT(*m_vkDevCtx, m_dscLayout, &m_descriptorLayoutSize);
 
+        fprintf(stderr, "[DEBUG] Descriptor buffer properties:\n");
+        fprintf(stderr, "[DEBUG]   samplerDescriptorSize: %zu\n", m_descriptorBufferProperties.samplerDescriptorSize);
+        fprintf(stderr, "[DEBUG]   combinedImageSamplerDescriptorSize: %zu\n", m_descriptorBufferProperties.combinedImageSamplerDescriptorSize);
+        fprintf(stderr, "[DEBUG]   sampledImageDescriptorSize: %zu\n", m_descriptorBufferProperties.sampledImageDescriptorSize);
+        fprintf(stderr, "[DEBUG]   storageImageDescriptorSize: %zu\n", m_descriptorBufferProperties.storageImageDescriptorSize);
+        fprintf(stderr, "[DEBUG]   descriptorBufferOffsetAlignment: %zu\n", m_descriptorBufferProperties.descriptorBufferOffsetAlignment);
+        fprintf(stderr, "[DEBUG]   Raw descriptor layout size: %zu\n", m_descriptorLayoutSize);
+
         m_descriptorLayoutSize = vk::alignedSize(m_descriptorLayoutSize,
                                                  m_descriptorBufferProperties.descriptorBufferOffsetAlignment);
 
+        fprintf(stderr, "[DEBUG]   Aligned descriptor layout size: %zu\n", m_descriptorLayoutSize);
+
         m_descriptorBufferSize = m_descriptorLayoutSize * m_maxNumFrames;
+
+        fprintf(stderr, "[DEBUG]   Descriptor buffer size (layout * %u frames): %zu\n", m_maxNumFrames, m_descriptorBufferSize);
 
         result = VkBufferResource::Create(m_vkDevCtx,
                                           VK_BUFFER_USAGE_RESOURCE_DESCRIPTOR_BUFFER_BIT_EXT |
