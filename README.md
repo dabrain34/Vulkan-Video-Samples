@@ -133,3 +133,29 @@ python3 tests/video_test_framework_encode.py --test "encode_h264_*"
 ```
 
 For complete documentation, command-line options, and advanced usage examples, see **[tests/README.md](tests/README.md)**.
+
+## Contributing
+
+We welcome contributions to the Vulkan Video Samples project. When submitting a Pull Request, please include the following:
+
+### Testing Hardware Information
+
+Every PR must include a section describing the hardware configuration used to run the [testing framework](tests/README.md). This helps maintainers understand the test coverage and identify potential hardware-specific issues.
+
+Please include in your PR description:
+
+```
+## Test Results
+
+### [GPU Model] / [Driver Version] / [OS]
+
+Total Tests:     70
+Passed:          48
+Crashed:          0
+Failed:           0
+Not Supported:    5
+Skipped:         17 (in skip list)
+Success Rate: 100.0%
+```
+
+This information is essential for tracking codec support across different hardware vendors and driver versions.
