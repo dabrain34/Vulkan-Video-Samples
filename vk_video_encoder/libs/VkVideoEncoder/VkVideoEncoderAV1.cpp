@@ -937,9 +937,11 @@ VkResult VkVideoEncoderAV1::GetEncodeFeedbackResults(VkQueryPool queryPool, uint
     };
 
     if (flags & VK_VIDEO_ENCODE_FEEDBACK_BITSTREAM_BUFFER_OFFSET_BIT_KHR) {
+        results.hasBitstreamStartOffset = true;
         results.bitstreamStartOffset = readU32();
     }
     if (flags & VK_VIDEO_ENCODE_FEEDBACK_BITSTREAM_BYTES_WRITTEN_BIT_KHR) {
+        results.hasBitstreamSize = true;
         results.bitstreamSize = readU32();
     }
     if (flags & VK_VIDEO_ENCODE_FEEDBACK_BITSTREAM_HAS_OVERRIDES_BIT_KHR) {
@@ -974,6 +976,7 @@ VkResult VkVideoEncoderAV1::GetEncodeFeedbackResults(VkQueryPool queryPool, uint
         results.picturePartitionCount = readU32();
     }
 
+    results.hasStatus = true;
     results.status = readStatus();
 
     if (m_perPartitionFeedbackFlags != 0 && m_maxPerPartitionFeedbackEntries > 0) {
@@ -983,6 +986,7 @@ VkResult VkVideoEncoderAV1::GetEncodeFeedbackResults(VkQueryPool queryPool, uint
             partition.index = i;
 
             if (m_perPartitionFeedbackFlags & VK_VIDEO_ENCODE_PER_PARTITION_FEEDBACK_STATUS_BIT_KHR) {
+                partition.hasStatus = true;
                 partition.status = readStatus();
             }
             if (m_perPartitionFeedbackFlags & VK_VIDEO_ENCODE_PER_PARTITION_FEEDBACK_BITSTREAM_BUFFER_OFFSET_BIT_KHR) {
@@ -1218,6 +1222,15 @@ void VkVideoEncoderAV1::Feedback2TextOutput::WriteFrame(const Feedback2FrameOutp
 
     if (m_pictureEnabled) {
         fprintf(fileHandle, "frame %llu", (unsigned long long)output.frameIndex);
+        if (output.hasStatus) {
+            fprintf(fileHandle, " status=%d", (int)output.status);
+        }
+        if (output.hasBitstreamBufferOffset) {
+            fprintf(fileHandle, " bs_offset=%u", output.bitstreamBufferOffset);
+        }
+        if (output.hasBitstreamBytesWritten) {
+            fprintf(fileHandle, " bs_size=%u", output.bitstreamBytesWritten);
+        }
         if (output.hasAvgQp) {
             fprintf(fileHandle, " avgqp=%d", output.avgQp);
         }
@@ -1244,8 +1257,11 @@ void VkVideoEncoderAV1::Feedback2TextOutput::WriteFrame(const Feedback2FrameOutp
 
     if (m_partitionEnabled) {
         for (const auto& partition : output.partitions) {
-            fprintf(fileHandle, "partition %u offset=%u size=%u\n",
-                    partition.index, partition.offset, partition.size);
+            fprintf(fileHandle, "partition %u", partition.index);
+            if (partition.hasStatus) {
+                fprintf(fileHandle, " status=%d", (int)partition.status);
+            }
+            fprintf(fileHandle, " offset=%u size=%u\n", partition.offset, partition.size);
         }
     }
 
@@ -1261,6 +1277,12 @@ void VkVideoEncoderAV1::WriteFeedback2Output(const VkVideoEncodeFrameInfoAV1* fr
 
     Feedback2FrameOutput output{};
     output.frameIndex = frameInfo->frameInputOrderNum;
+    output.hasStatus = (results != nullptr && results->hasStatus);
+    output.status = output.hasStatus ? results->status : VK_QUERY_RESULT_STATUS_NOT_READY_KHR;
+    output.hasBitstreamBufferOffset = (results && results->hasBitstreamStartOffset);
+    output.hasBitstreamBytesWritten = (results && results->hasBitstreamSize);
+    output.bitstreamBufferOffset = output.hasBitstreamBufferOffset ? results->bitstreamStartOffset : 0;
+    output.bitstreamBytesWritten = output.hasBitstreamBytesWritten ? results->bitstreamSize : 0;
 
     if (m_feedback2Output.PictureEnabled()) {
         output.hasAvgQp = (results && results->hasAverageQuantization);
