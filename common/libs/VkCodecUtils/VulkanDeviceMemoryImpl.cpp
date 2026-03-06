@@ -15,9 +15,9 @@
 */
 
 #include <string.h>
-#include "VkVSCommon.h"
 #include "VkCodecUtils/VulkanDeviceMemoryImpl.h"
 #include "VkCodecUtils/Helpers.h"
+#include "VkVSCommon.h"
 
 VkResult
 VulkanDeviceMemoryImpl::Create(const VulkanDeviceContext* vkDevCtx,

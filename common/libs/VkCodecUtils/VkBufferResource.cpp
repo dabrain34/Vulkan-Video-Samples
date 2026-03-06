@@ -15,9 +15,9 @@
 */
 
 #include <string.h>
-#include "VkVSCommon.h"
 #include "VkCodecUtils/VkBufferResource.h"
 #include "VkCodecUtils/Helpers.h"
+#include "VkVSCommon.h"
 
 VkResult
 VkBufferResource::Create(const VulkanDeviceContext* vkDevCtx,

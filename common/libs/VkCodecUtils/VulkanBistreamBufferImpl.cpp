@@ -15,9 +15,9 @@
 */
 
 #include <string.h>
-#include "VkVSCommon.h"
 #include "VkCodecUtils/VulkanBistreamBufferImpl.h"
 #include "VkCodecUtils/Helpers.h"
+#include "VkVSCommon.h"
 
 VkResult
 VulkanBitstreamBufferImpl::Create(const VulkanDeviceContext* vkDevCtx,
