@@ -15,6 +15,7 @@
 */
 
 #include <string.h>
+#include "VkVSCommon.h"
 #include "VkCodecUtils/VulkanBistreamBufferImpl.h"
 #include "VkCodecUtils/Helpers.h"
 
@@ -87,7 +88,7 @@ VkResult VulkanBitstreamBufferImpl::CreateBuffer(const VulkanDeviceContext* vkDe
                                                  VkDeviceSize initializeBufferMemorySize,
                                                  VkSharedBaseObj<VulkanDeviceMemoryImpl>& vulkanDeviceMemory)
 {
-    bufferSize = ((bufferSize + (bufferSizeAlignment - 1)) & ~(bufferSizeAlignment - 1));
+    bufferSize = VKVS_ROUND_UP_N(bufferSize, bufferSizeAlignment);
     bufferOffset = 0;
 
     // Create the buffer
@@ -204,7 +205,7 @@ VkResult VulkanBitstreamBufferImpl::CopyDataToBuffer(const uint8_t* pData,
         return VK_ERROR_INITIALIZATION_FAILED;
     }
 
-    dstBufferOffset = ((dstBufferOffset + (m_bufferOffsetAlignment - 1)) & ~(m_bufferOffsetAlignment - 1));
+    dstBufferOffset = VKVS_ROUND_UP_N(dstBufferOffset, m_bufferOffsetAlignment);
     assert((dstBufferOffset + size) <= m_bufferSize);
 
     return m_vulkanDeviceMemory->CopyDataToMemory(pData, size,  m_bufferOffset + dstBufferOffset);

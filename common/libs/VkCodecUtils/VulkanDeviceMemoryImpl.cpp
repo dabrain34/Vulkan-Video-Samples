@@ -15,6 +15,7 @@
 */
 
 #include <string.h>
+#include "VkVSCommon.h"
 #include "VkCodecUtils/VulkanDeviceMemoryImpl.h"
 #include "VkCodecUtils/Helpers.h"
 
@@ -218,7 +219,7 @@ VkDeviceSize VulkanDeviceMemoryImpl::Resize(VkDeviceSize newSize, VkDeviceSize c
     }
 
     VkMemoryRequirements memoryRequirements(m_memoryRequirements);
-    memoryRequirements.size = ((newSize + (memoryRequirements.alignment - 1)) & ~(memoryRequirements.alignment - 1));
+    memoryRequirements.size = VKVS_ROUND_UP_N(newSize, memoryRequirements.alignment);
     VkDeviceMemory  newDeviceMemory = VK_NULL_HANDLE;
     VkDeviceSize    newBufferOffset = 0;
     VkMemoryPropertyFlags newMemoryPropertyFlags = m_memoryPropertyFlags;

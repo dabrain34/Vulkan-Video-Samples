@@ -15,6 +15,7 @@
 */
 
 #include "VulkanVideoParserIf.h"
+#include "VkVSCommon.h"
 
 #include "VulkanVP9Decoder.h"
 
@@ -256,7 +257,7 @@ bool VulkanVP9Decoder::ParseFrameHeader(uint32_t framesize)
     *m_pVkPictureData = VkParserPictureData();
     m_pVkPictureData->CodecSpecific.vp9 = m_PicData;
     m_pVkPictureData->numSlices = m_PicData.numTiles;
-    m_pVkPictureData->bitstreamDataLen = (framesize + addOffset + m_bufferSizeAlignment - 1) & ~(m_bufferSizeAlignment - 1); // buffer is already aligned so, no issues.
+    m_pVkPictureData->bitstreamDataLen = VKVS_ROUND_UP_N(framesize + addOffset, m_bufferSizeAlignment);
     m_pVkPictureData->bitstreamData = m_bitstreamData.GetBitstreamBuffer();
     m_pVkPictureData->bitstreamDataOffset = (size_t)(m_nalu.start_offset & ~((int64_t)m_bufferOffsetAlignment - 1));
 

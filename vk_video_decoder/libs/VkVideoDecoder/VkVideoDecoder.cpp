@@ -21,11 +21,10 @@
 #include "VkVideoCore/VulkanVideoCapabilities.h"
 #include "VkVideoDecoder/VkVideoDecoder.h"
 #include "nvidia_utils/vulkan/ycbcrvkinfo.h"
+#include "VkVSCommon.h"
 
 #undef max
 #undef min
-
-#define GPU_ALIGN(x) (((x) + 0xff) & ~0xff)
 
 const uint64_t gFenceTimeout = 100 * 1000 * 1000 /* 100 mSec */;
 const uint64_t gLongTimeout  = 1000 * 1000 * 1000 /* 1000 mSec */;
@@ -726,10 +725,13 @@ int VkVideoDecoder::DecodePictureWithParameters(VkParserPerFrameDecodeParameters
     pCurrFrameDecParams->decodeFrameInfo.srcBuffer = pCurrFrameDecParams->bitstreamData->GetBuffer();
     //assert(pCurrFrameDecParams->bitstreamDataOffset == 0);
     assert(pCurrFrameDecParams->firstSliceIndex == 0);
-    // TODO: Assert if bitstreamDataOffset is aligned to VkVideoCapabilitiesKHR::minBitstreamBufferOffsetAlignment
     pCurrFrameDecParams->decodeFrameInfo.srcBufferOffset = pCurrFrameDecParams->bitstreamDataOffset;
-    // TODO: Assert if bitstreamDataLen is aligned to VkVideoCapabilitiesKHR::minBitstreamBufferSizeAlignment
-    pCurrFrameDecParams->decodeFrameInfo.srcBufferRange =  pCurrFrameDecParams->bitstreamDataLen;
+    pCurrFrameDecParams->decodeFrameInfo.srcBufferRange =
+        VKVS_ROUND_UP_N(pCurrFrameDecParams->bitstreamDataLen,
+                         pCurrFrameDecParams->bitstreamData->GetSizeAlignment());
+    assert((pCurrFrameDecParams->decodeFrameInfo.srcBufferOffset +
+            pCurrFrameDecParams->decodeFrameInfo.srcBufferRange) <=
+           pCurrFrameDecParams->bitstreamData->GetMaxSize());
 
     VkVideoBeginCodingInfoKHR decodeBeginInfo = { VK_STRUCTURE_TYPE_VIDEO_BEGIN_CODING_INFO_KHR };
     decodeBeginInfo.pNext = pCurrFrameDecParams->beginCodingInfoPictureParametersExt;

@@ -3,6 +3,9 @@
 
 // Common definitions for Vulkan Video Samples
 
+// Round up 'num' to the nearest multiple of 'align' (align must be a power of 2)
+#define VKVS_ROUND_UP_N(num, align) ((((num) + ((align) - 1)) & ~((align) - 1)))
+
 #ifdef __cplusplus
 extern "C" {
 #endif
