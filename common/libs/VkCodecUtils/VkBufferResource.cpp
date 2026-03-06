@@ -226,7 +226,7 @@ VkDeviceSize VkBufferResource::GetOffsetAlignment() const
 
 VkDeviceSize VkBufferResource::GetSizeAlignment() const
 {
-    return m_vulkanDeviceMemory->GetMemoryRequirements().alignment;
+    return m_bufferSizeAlignment;
 }
 
 VkDeviceSize VkBufferResource::Resize(VkDeviceSize newSize, VkDeviceSize copySize, VkDeviceSize copyOffset)
