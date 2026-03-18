@@ -149,6 +149,15 @@ class TestIsTestSkipped:
                                  test_type="decode")
         assert result is None
 
+    def test_driver_none_matches_any_rule(self):
+        """Test that current_driver=None matches rules regardless of driver"""
+        rules = [SkipRule(name="test", test_type="decode", format="vvs",
+                          drivers=["radv"])]
+
+        result = is_test_skipped("test", "vvs", rules, current_driver=None,
+                                 test_type="decode")
+        assert result is not None
+
     def test_type_mismatch(self):
         """Test that test type must match"""
         rules = [SkipRule(name="test", test_type="decode", format="vvs")]

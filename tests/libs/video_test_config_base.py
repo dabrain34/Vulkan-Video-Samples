@@ -176,7 +176,7 @@ def is_test_skipped(
     test_name: str,
     test_format: str,
     skip_rules: List[SkipRule],
-    current_driver: str = "all",
+    current_driver: Optional[str] = "all",
     test_type: str = "decode"
 ) -> Optional[SkipRule]:
     """
@@ -196,7 +196,9 @@ def is_test_skipped(
         test_name: Name of the test to check
         test_format: Format of the test ('vvs', 'fluster', 'soothe')
         skip_rules: List of SkipRule objects to check against
-        current_driver: Current GPU driver name (default: 'all' to match all)
+        current_driver: Current GPU driver name. Use None to match rules
+            for any driver (bypasses driver filtering).
+            Default: 'all' to match only rules with 'all' driver
         test_type: Type of the test ('decode', 'encode')
 
     Returns:
@@ -221,8 +223,10 @@ def is_test_skipped(
         if rule.format != test_format:
             continue
 
-        # Check driver match
-        if "all" not in rule.drivers and current_driver not in rule.drivers:
+        # Check driver match (None means match any driver)
+        if (current_driver is not None
+                and "all" not in rule.drivers
+                and current_driver not in rule.drivers):
             continue
 
         # All conditions match - test is skipped

@@ -716,9 +716,13 @@ class VulkanVideoTestFrameworkBase:
 
             skipped_mode = skip_filter == SkipFilter.SKIPPED
             enabled_mode = skip_filter == SkipFilter.ENABLED
-            # When user explicitly requests a test (exact or pattern match),
-            # bypass skip list filtering
-            if skipped_mode and not is_all_drivers_skip and not user_requested:
+            # When user explicitly requests a test (exact or pattern
+            # match), bypass skip list filtering.
+            # In SKIPPED mode, include any test with a skip rule
+            # (current_driver=None matches all drivers).
+            if (skipped_mode
+                    and skip_rule is None
+                    and not user_requested):
                 continue
             if enabled_mode and is_all_drivers_skip and not user_requested:
                 # Track skipped samples - they will be shown but not run

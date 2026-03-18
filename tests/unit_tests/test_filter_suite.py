@@ -239,6 +239,40 @@ class TestFilterBySkipList:
         )
         assert len(result) == 2
 
+    def test_skipped_mode_includes_driver_specific(self):
+        """Test SKIPPED mode includes driver-specific skip rules"""
+        skip_rules = [
+            SkipRule(
+                name="radv_only",
+                test_type="decode",
+                format="vvs",
+                drivers=["radv"],
+            ),
+            SkipRule(
+                name="all_drivers",
+                test_type="decode",
+                format="vvs",
+                drivers=["all"],
+            ),
+        ]
+        framework = MockFramework(skip_rules=skip_rules)
+
+        samples = [
+            MockSample(name="radv_only", codec=CodecType.H264),
+            MockSample(name="all_drivers", codec=CodecType.H264),
+            MockSample(name="not_skipped", codec=CodecType.H264),
+        ]
+
+        result = framework.filter_test_suite(
+            samples, skip_filter=SkipFilter.SKIPPED,
+            test_format="vvs", test_type="decode"
+        )
+        assert len(result) == 2
+        names = [s.name for s in result]
+        assert "radv_only" in names
+        assert "all_drivers" in names
+        assert "not_skipped" not in names
+
     def test_exact_match_overrides_skip_in_enabled_mode(self):
         """Test that exact match can run skipped test in ENABLED mode"""
         skip_rules = [
