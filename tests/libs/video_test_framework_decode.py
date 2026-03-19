@@ -237,6 +237,6 @@ class VulkanVideoDecodeTestFramework(VulkanVideoTestFrameworkBase):
         return self.run_test_suite_base(test_configs, test_type="decode")
 
     def print_summary(self, results: List[TestResult] = None,
-                      test_type: str = "DECODER") -> bool:
+                      test_type: str = "decode") -> bool:
         """Print comprehensive test results summary"""
         return super().print_summary(results, test_type)

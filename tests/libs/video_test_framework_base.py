@@ -360,7 +360,7 @@ class VulkanVideoTestFrameworkBase:
 
     def print_summary(  # pylint: disable=too-many-locals
             self, results: List[TestResult] = None,
-            test_type: str = "TEST") -> bool:
+            test_type: str = "test") -> bool:
         """Print comprehensive test results summary with codec breakdown"""
         if results is None:
             results = self.results
