@@ -314,25 +314,104 @@ class VulkanVideoTestFrameworkBase:
         )
         return passed, not_supported, crashed, failed, skipped
 
-    def _count_skipped_tests(self, samples: list, test_format: str = "vvs",
-                             test_type: str = "decode") -> int:
-        """Count skipped tests from samples list based on skip rules"""
-        count = 0
-        for sample in samples:
-            skip_rule = is_test_skipped(
-                sample.name, test_format, self._skip_rules,
-                current_driver=self.current_driver, test_type=test_type
-            )
-            if skip_rule is not None:
-                count += 1
-        return count
+    @staticmethod
+    def _new_skip_bucket():
+        """Create an empty skip result bucket."""
+        return {"passed": [], "failing": [], "not_run": [],
+                "not_supported": []}
 
-    def _count_non_skipped_tests(self, samples: list, test_format: str = "vvs",
-                                 test_type: str = "decode") -> int:
-        """Count non-skipped tests from samples list"""
-        return len(samples) - self._count_skipped_tests(
-            samples, test_format, test_type
-        )
+    @staticmethod
+    def _categorize_skip_result(rule, result, bucket):
+        """Append rule name into the correct bucket category."""
+        if result is None:
+            bucket["not_run"].append(rule.name)
+        elif result.status == VideoTestStatus.SUCCESS:
+            bucket["passed"].append(rule.name)
+        elif result.status == VideoTestStatus.NOT_SUPPORTED:
+            bucket["not_supported"].append(rule.name)
+        else:
+            bucket["failing"].append(
+                f"{rule.name} ({result.status.value})")
+
+    def _classify_skip_rules(self, results: List[TestResult],
+                             test_type: str):
+        """Classify skip rules by driver relevance and test outcome.
+
+        Deduplicates by test name: if a test has rules for both this
+        driver and other drivers, it is counted only under this driver.
+
+        Returns (this_count, other_count, categories, other_categories)
+        where each *_categories is a list of (label, [names]) tuples.
+        """
+        result_by_name = {r.config.name: r for r in results}
+        matched_rules = set()
+        other_rules = set()
+        current_bucket = self._new_skip_bucket()
+        other_bucket = self._new_skip_bucket()
+
+        for rule in self._skip_rules:
+            if rule.test_type != test_type:
+                continue
+            matches_driver = ("all" in rule.drivers
+                              or self.current_driver in rule.drivers)
+            if matches_driver and rule.name not in matched_rules:
+                matched_rules.add(rule.name)
+                self._categorize_skip_result(
+                    rule, result_by_name.get(rule.name), current_bucket)
+            elif (not matches_driver
+                  and rule.name not in matched_rules
+                  and rule.name not in other_rules):
+                other_rules.add(rule.name)
+                self._categorize_skip_result(
+                    rule, result_by_name.get(rule.name), other_bucket)
+
+        categories = [
+            ("Passed (can be removed)", current_bucket["passed"]),
+            ("Still failing", current_bucket["failing"]),
+            ("Not supported", current_bucket["not_supported"]),
+            ("Not run", current_bucket["not_run"]),
+        ]
+        other_categories = [
+            ("Passed on this driver", other_bucket["passed"]),
+            ("Failing on this driver", other_bucket["failing"]),
+            ("Not supported", other_bucket["not_supported"]),
+            ("Not run", other_bucket["not_run"]),
+        ]
+        return (len(matched_rules), len(other_rules),
+                categories, other_categories)
+
+    def _print_skip_list_analysis(self, results: List[TestResult],
+                                  test_type: str = "decode") -> None:
+        """Print skip list analysis when running in only-skipped mode.
+
+        Shows how many skip rules target the current driver, which passed
+        (candidates for removal from skip list), and which still fail.
+        """
+        if not self.only_skipped or not self._skip_rules:
+            return
+
+        current_count, other_count, categories, other_categories = (
+            self._classify_skip_rules(results, test_type))
+        if not current_count and not other_count:
+            return
+
+        driver_label = (f"driver: {self.current_driver}"
+                        if self._detected_driver else "driver: unknown")
+        print()
+        print(f"SKIP LIST ANALYSIS - {test_type.upper()} ({driver_label})")
+        print("-" * 50)
+        if current_count:
+            print(f"Skip rules for this driver: {current_count:3}")
+            for label, names in categories:
+                if names:
+                    print(f"  {label + ':':<25} {len(names):3}"
+                          f"  <- {', '.join(names)}")
+        if other_count:
+            print(f"Skip rules for other drivers: {other_count:3}")
+            for label, names in other_categories:
+                if names:
+                    print(f"  {label + ':':<25} {len(names):3}"
+                          f"  <- {', '.join(names)}")
 
     def _group_results_by_codec(self, results: List[TestResult]) -> dict:
         """Group results by codec with counts"""

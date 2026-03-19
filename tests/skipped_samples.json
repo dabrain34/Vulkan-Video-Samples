@@ -183,10 +183,10 @@
     {
       "name": "h265_main10_profile",
       "format": "vvs",
-      "drivers": ["anv", "radv", "nvidia"],
+      "drivers": ["radv"],
       "platforms": ["all"],
       "reproduction": "always",
-      "reason": "VideoCapabilities issue",
+      "reason": "VideoCapabilities issue (assert on radv)",
       "bug_url": "",
       "date_added": "2026-01-16"
     },

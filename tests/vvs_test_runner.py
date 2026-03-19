@@ -328,36 +328,6 @@ class VulkanVideoTestFramework:  # pylint: disable=too-many-instance-attributes
 
         return encode_results, decode_results
 
-    def _count_skipped_tests(self) -> int:
-        """Count skipped tests from both frameworks using skip list"""
-        total_skipped = 0
-        if self.encode_framework and self.encode_framework.encode_samples:
-            for sample in self.encode_framework.encode_samples:
-                if is_test_skipped(sample.name, "vvs", self.skip_rules,
-                                   test_type="encode"):
-                    total_skipped += 1
-        if self.decode_framework and self.decode_framework.decode_samples:
-            for sample in self.decode_framework.decode_samples:
-                if is_test_skipped(sample.name, "vvs", self.skip_rules,
-                                   test_type="decode"):
-                    total_skipped += 1
-        return total_skipped
-
-    def _count_non_skipped_tests(self) -> int:
-        """Count non-skipped (enabled) tests from both frameworks"""
-        total_enabled = 0
-        if self.encode_framework and self.encode_framework.encode_samples:
-            for sample in self.encode_framework.encode_samples:
-                if not is_test_skipped(sample.name, "vvs", self.skip_rules,
-                                       test_type="encode"):
-                    total_enabled += 1
-        if self.decode_framework and self.decode_framework.decode_samples:
-            for sample in self.decode_framework.decode_samples:
-                if not is_test_skipped(sample.name, "vvs", self.skip_rules,
-                                       test_type="decode"):
-                    total_enabled += 1
-        return total_enabled
-
     def _print_final_status(self, overall_success: bool,
                             test_counts: dict) -> None:
         """Print final status message
@@ -452,6 +422,12 @@ class VulkanVideoTestFramework:  # pylint: disable=too-many-instance-attributes
         if effective_total > 0:
             success_rate = total_passed / effective_total * 100
             print(f"Success Rate: {success_rate:.1f}%")
+
+        # Combined skip list analysis from both frameworks
+        for fw, tt in [(self.decode_framework, "decode"),
+                       (self.encode_framework, "encode")]:
+            if fw:
+                fw._print_skip_list_analysis(fw.results, tt)
 
         overall_success = encode_success and decode_success
         self._print_final_status(
@@ -551,7 +527,7 @@ def _print_sample_section(
         description = sample.get('description', '')
         tags = []
         if is_test_skipped(sample['name'], "vvs", skip_rules,
-                           test_type=test_type):
+                           current_driver=None, test_type=test_type):
             tags.append("SKIPPED")
             skipped += 1
         if sample.get('extended', False):
