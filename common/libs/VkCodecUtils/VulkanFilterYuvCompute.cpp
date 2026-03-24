@@ -17,7 +17,7 @@
 #include "VulkanFilterYuvCompute.h"
 #include "nvidia_utils/vulkan/ycbcrvkinfo.h"
 
-static bool dumpShaders = true;
+static bool dumpShaders = false;
 
 VkResult VulkanFilterYuvCompute::Create(const VulkanDeviceContext* vkDevCtx,
                                         uint32_t queueFamilyIndex,
@@ -176,7 +176,7 @@ VkResult VulkanFilterYuvCompute::InitDescriptorSetLayout(uint32_t maxNumFrames)
     VkPushConstantRange pushConstantRange = {};
     pushConstantRange.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT; // Stage the push constant is for
     pushConstantRange.offset = 0;
-    pushConstantRange.size = 6 * sizeof(uint32_t); // Size of the push constant - source and destination image layers + 2 * ivec2
+    pushConstantRange.size = sizeof(PushConstants); // Size of the push constant - source and destination image layers + 2 * ivec2
 
     return m_descriptorSetLayout.CreateDescriptorSet(m_vkDevCtx,
                                                      setLayoutBindings,
