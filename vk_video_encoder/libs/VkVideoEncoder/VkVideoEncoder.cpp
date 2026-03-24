@@ -1124,6 +1124,12 @@ VkResult VkVideoEncoder::InitEncoder(VkSharedBaseObj<EncoderConfig>& encoderConf
             : m_imageInFormat;
 #else
         m_imageInFormat;
+    if (encoderConfig->input.vkFormat != m_imageInFormat) {
+        fprintf(stderr, "\nWarning: input format (%d) differs from encode format (%d) "
+                "but compute filter is not available (built without SHADERC_SUPPORT). "
+                "Output may be incorrect.\n",
+                encoderConfig->input.vkFormat, m_imageInFormat);
+    }
 #endif
 
     result = m_linearInputImagePool->Configure( m_vkDevCtx,
