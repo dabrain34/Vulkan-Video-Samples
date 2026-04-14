@@ -151,14 +151,19 @@ int32_t VkVideoDecoder::StartVideoSequence(VkParserDetectedVideoFormat* pVideoFo
 
     switch (videoCodec)
     {
-    case VK_VIDEO_CODEC_OPERATION_DECODE_H264_BIT_KHR:
+    case VK_VIDEO_CODEC_OPERATION_DECODE_H264_BIT_KHR: {
+        StdVideoH264ProfileIdc h264ProfileIdc = (StdVideoH264ProfileIdc)pVideoFormat->codecProfile;
+        // H.264 Baseline is frame-only; upgrade to Main when the bitstream uses fields.
+        if (h264ProfileIdc == STD_VIDEO_H264_PROFILE_IDC_BASELINE && pVideoFormat->canUseFields) {
+            h264ProfileIdc = STD_VIDEO_H264_PROFILE_IDC_MAIN;
+        }
         videoProfile = VkVideoCoreProfile::CreateDecodeH264Profile(
               pVideoFormat->chromaSubsampling, pVideoFormat->lumaBitDepth,
-              pVideoFormat->chromaBitDepth, pVideoFormat->codecProfile,
+              pVideoFormat->chromaBitDepth, h264ProfileIdc,
               pVideoFormat->canUseFields ?
                                         VK_VIDEO_DECODE_H264_PICTURE_LAYOUT_INTERLACED_INTERLEAVED_LINES_BIT_KHR :
                                         VK_VIDEO_DECODE_H264_PICTURE_LAYOUT_PROGRESSIVE_KHR);
-        break;
+    } break;
     case VK_VIDEO_CODEC_OPERATION_DECODE_AV1_BIT_KHR:
         videoProfile = VkVideoCoreProfile::CreateDecodeAV1Profile(
               pVideoFormat->chromaSubsampling, pVideoFormat->lumaBitDepth,
