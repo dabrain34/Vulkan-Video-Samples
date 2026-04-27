@@ -534,8 +534,13 @@ public:
                         displayOutImageType, VK_IMAGE_LAYOUT_MAX_ENUM,
                         nullptr, &displayResInfo);
                     VkImageLayout trackedLayout = displayResInfo.currentImageLayout;
-                    if (trackedLayout == VK_IMAGE_LAYOUT_VIDEO_DECODE_DPB_KHR ||
-                        trackedLayout == VK_IMAGE_LAYOUT_VIDEO_DECODE_DST_KHR) {
+                    // Propagate the image's real layout so the display barrier's
+                    // oldLayout is honest. Besides DPB/DST, the post-process filter
+                    // leaves the output in GENERAL (compute) or TRANSFER_DST_OPTIMAL
+                    // (transfer). A dequeued image must always have been decoded,
+                    // so UNDEFINED here is an invariant violation.
+                    assert(trackedLayout != VK_IMAGE_LAYOUT_UNDEFINED);
+                    if (trackedLayout != VK_IMAGE_LAYOUT_UNDEFINED) {
                         pDecodedFrame->outputImageLayout = trackedLayout;
                     }
                 }
