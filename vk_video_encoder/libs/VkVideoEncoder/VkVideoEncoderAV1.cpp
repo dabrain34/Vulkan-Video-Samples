@@ -349,6 +349,13 @@ VkResult VkVideoEncoderAV1::ProcessDpb(VkSharedBaseObj<VkVideoEncodeFrameInfo>& 
         }
     }
 
+    // primary_ref_frame == NONE never matches in the loop above, so clear
+    // the flag here. Also prevents GetDpbIdx(NONE = 7) reading past
+    // m_refName2DpbIdx[STD_VIDEO_AV1_REFS_PER_FRAME].
+    if (pFrameInfo->stdPictureInfo.primary_ref_frame == STD_VIDEO_AV1_PRIMARY_REF_NONE) {
+        primaryRefCdfOnly = false;
+    }
+
     // Do not include primary_ref_frame reference when primaryRefCdfOnly in predictionMode calculation
     // If curent picture is a key frame or intra frame, use INTRA prediction mode.
     // If both groups contain atleast 1 picture, use BIDIR_COMP prediction. (UNIDIR_COMP prediction also possible)
