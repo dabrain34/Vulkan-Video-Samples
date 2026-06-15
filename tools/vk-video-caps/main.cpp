@@ -88,6 +88,10 @@ public:
     // A standalone note (e.g. "not supported") attached to the current section.
     virtual void note(const std::string& text) = 0;
 
+    // True for structured backends (JSON) where arrays of objects make sense; false for
+    // Markdown, which prefers a flat table.
+    virtual bool structured() const = 0;
+
     virtual void finish() = 0;
 };
 
@@ -130,6 +134,7 @@ public:
         addRow(field, decoded.empty() ? std::string(buf) : std::string(buf) + " [" + decoded + "]");
     }
     void note(const std::string& text) override { flushTable(); std::cout << "\n" << text << "\n"; }
+    bool structured() const override { return false; }
     void finish() override { flushTable(); }
 
 private:
@@ -181,17 +186,13 @@ public:
     {
         comma();
         if (inArray()) {
-            // Array element: anonymous object carrying the codec name as a field.
+            // Array element: anonymous object. The caller emits its own identifying field.
             std::cout << "\n" << indent() << "{";
-            m_needComma = false;
-            m_inArray.push_back(false);
-            field_("codec");
-            std::cout << quote(key);
         } else {
             std::cout << "\n" << indent() << quote(key) << ": {";
-            m_needComma = false;
-            m_inArray.push_back(false);
         }
+        m_needComma = false;
+        m_inArray.push_back(false);
     }
     void endSection(int) override { closeBrace(); }
 
@@ -239,6 +240,7 @@ public:
         std::cout << "] }";
     }
     void note(const std::string& text) override { field_("note"); std::cout << quote(text); }
+    bool structured() const override { return true; }
 
     void finish() override
     {
@@ -290,13 +292,22 @@ private:
     bool m_needComma = false;
 };
 
-// Emit the codec section heading then a "not supported" note (used when a codec is absent).
-void emitUnsupported(int level, const std::string& key, const std::string& title,
-                     const std::string& reason)
+// Open a codec section (## <codec>) and, for structured output, emit a "codec" id field so
+// JSON array elements are self-describing. Markdown skips the field (the heading names it).
+void beginCodec(const std::string& key)
 {
-    g_emit->heading(level, key, title);
+    g_emit->heading(2, key, key);
+    if (g_emit->structured()) {
+        g_emit->str("codec", key);
+    }
+}
+
+// Emit a codec section heading then a "not supported" note (used when a codec is absent).
+void emitUnsupported(const std::string& key, const std::string& reason)
+{
+    beginCodec(key);
     g_emit->note(reason);
-    g_emit->endSection(level);
+    g_emit->endSection(2);
 }
 
 const FlagName kRateControlModeNames[] = {
@@ -395,39 +406,201 @@ void emitGenericCaps(const VkVideoCapabilitiesKHR& caps)
     g_emit->hex("stdHeaderVersion.specVersion", caps.stdHeaderVersion.specVersion);
 }
 
-// Build the representative 8-bit 4:2:0 profile for a codec operation.
-// Each codec needs its own factory; CreateDecodeProfile asserts on H265/VP9 only.
-VkVideoCoreProfile makeProfile(VkVideoCodecOperationFlagBitsKHR codec)
+// Build a profile for a codec operation with the given codec profile IDC, chroma
+// subsampling and bit depth. Each codec needs its own factory; CreateDecodeProfile
+// asserts on H265/VP9 only.
+VkVideoCoreProfile makeProfileEx(VkVideoCodecOperationFlagBitsKHR codec, uint32_t profileIdc,
+                                 VkVideoChromaSubsamplingFlagsKHR chroma,
+                                 VkVideoComponentBitDepthFlagsKHR depth)
 {
-    const VkVideoChromaSubsamplingFlagsKHR chroma = VK_VIDEO_CHROMA_SUBSAMPLING_420_BIT_KHR;
-    const VkVideoComponentBitDepthFlagsKHR depth8 = VK_VIDEO_COMPONENT_BIT_DEPTH_8_BIT_KHR;
-
     switch (codec) {
     case VK_VIDEO_CODEC_OPERATION_DECODE_H264_BIT_KHR:
-        return VkVideoCoreProfile::CreateDecodeH264Profile(chroma, depth8, depth8,
-                   STD_VIDEO_H264_PROFILE_IDC_MAIN,
+        return VkVideoCoreProfile::CreateDecodeH264Profile(chroma, depth, depth, profileIdc,
                    VK_VIDEO_DECODE_H264_PICTURE_LAYOUT_PROGRESSIVE_KHR);
     case VK_VIDEO_CODEC_OPERATION_DECODE_H265_BIT_KHR:
-        return VkVideoCoreProfile::CreateDecodeProfile(codec, chroma, depth8, depth8,
-                   STD_VIDEO_H265_PROFILE_IDC_MAIN);
-    case VK_VIDEO_CODEC_OPERATION_DECODE_AV1_BIT_KHR:
-        return VkVideoCoreProfile::CreateDecodeAV1Profile(chroma, depth8, depth8,
-                   STD_VIDEO_AV1_PROFILE_MAIN, /*filmGrainSupport*/ false);
     case VK_VIDEO_CODEC_OPERATION_DECODE_VP9_BIT_KHR:
-        return VkVideoCoreProfile::CreateDecodeProfile(codec, chroma, depth8, depth8,
-                   STD_VIDEO_VP9_PROFILE_0);
+        return VkVideoCoreProfile::CreateDecodeProfile(codec, chroma, depth, depth, profileIdc);
+    case VK_VIDEO_CODEC_OPERATION_DECODE_AV1_BIT_KHR:
+        return VkVideoCoreProfile::CreateDecodeAV1Profile(chroma, depth, depth, profileIdc,
+                   /*filmGrainSupport*/ false);
     case VK_VIDEO_CODEC_OPERATION_ENCODE_H264_BIT_KHR:
-        return VkVideoCoreProfile::CreateEncodeProfile(codec, chroma, depth8, depth8,
-                   STD_VIDEO_H264_PROFILE_IDC_MAIN, VK_VIDEO_ENCODE_TUNING_MODE_DEFAULT_KHR);
     case VK_VIDEO_CODEC_OPERATION_ENCODE_H265_BIT_KHR:
-        return VkVideoCoreProfile::CreateEncodeProfile(codec, chroma, depth8, depth8,
-                   STD_VIDEO_H265_PROFILE_IDC_MAIN, VK_VIDEO_ENCODE_TUNING_MODE_DEFAULT_KHR);
     case VK_VIDEO_CODEC_OPERATION_ENCODE_AV1_BIT_KHR:
-        return VkVideoCoreProfile::CreateEncodeProfile(codec, chroma, depth8, depth8,
-                   STD_VIDEO_AV1_PROFILE_MAIN, VK_VIDEO_ENCODE_TUNING_MODE_DEFAULT_KHR);
+        return VkVideoCoreProfile::CreateEncodeProfile(codec, chroma, depth, depth, profileIdc,
+                   VK_VIDEO_ENCODE_TUNING_MODE_DEFAULT_KHR);
     default:
         return VkVideoCoreProfile();
     }
+}
+
+// Representative 8-bit 4:2:0 Main profile used for the detailed capability dump.
+VkVideoCoreProfile makeProfile(VkVideoCodecOperationFlagBitsKHR codec)
+{
+    uint32_t mainIdc = 0;
+    switch (codec) {
+    case VK_VIDEO_CODEC_OPERATION_DECODE_H264_BIT_KHR:
+    case VK_VIDEO_CODEC_OPERATION_ENCODE_H264_BIT_KHR:
+        mainIdc = STD_VIDEO_H264_PROFILE_IDC_MAIN; break;
+    case VK_VIDEO_CODEC_OPERATION_DECODE_H265_BIT_KHR:
+    case VK_VIDEO_CODEC_OPERATION_ENCODE_H265_BIT_KHR:
+        mainIdc = STD_VIDEO_H265_PROFILE_IDC_MAIN; break;
+    case VK_VIDEO_CODEC_OPERATION_DECODE_AV1_BIT_KHR:
+    case VK_VIDEO_CODEC_OPERATION_ENCODE_AV1_BIT_KHR:
+        mainIdc = STD_VIDEO_AV1_PROFILE_MAIN; break;
+    case VK_VIDEO_CODEC_OPERATION_DECODE_VP9_BIT_KHR:
+        mainIdc = STD_VIDEO_VP9_PROFILE_0; break;
+    default:
+        return VkVideoCoreProfile();
+    }
+    return makeProfileEx(codec, mainIdc, VK_VIDEO_CHROMA_SUBSAMPLING_420_BIT_KHR,
+                         VK_VIDEO_COMPONENT_BIT_DEPTH_8_BIT_KHR);
+}
+
+// --- Profile matrix probing ---------------------------------------------------------------
+
+struct NamedValue {
+    uint32_t value;
+    const char* name;
+};
+
+const NamedValue kChromaValues[] = {
+    { VK_VIDEO_CHROMA_SUBSAMPLING_MONOCHROME_BIT_KHR, "monochrome" },
+    { VK_VIDEO_CHROMA_SUBSAMPLING_420_BIT_KHR, "420" },
+    { VK_VIDEO_CHROMA_SUBSAMPLING_422_BIT_KHR, "422" },
+    { VK_VIDEO_CHROMA_SUBSAMPLING_444_BIT_KHR, "444" },
+};
+
+const NamedValue kDepthValues[] = {
+    { VK_VIDEO_COMPONENT_BIT_DEPTH_8_BIT_KHR, "8" },
+    { VK_VIDEO_COMPONENT_BIT_DEPTH_10_BIT_KHR, "10" },
+    { VK_VIDEO_COMPONENT_BIT_DEPTH_12_BIT_KHR, "12" },
+};
+
+const NamedValue kH264Profiles[] = {
+    { STD_VIDEO_H264_PROFILE_IDC_BASELINE, "BASELINE" },
+    { STD_VIDEO_H264_PROFILE_IDC_MAIN, "MAIN" },
+    { STD_VIDEO_H264_PROFILE_IDC_HIGH, "HIGH" },
+    { STD_VIDEO_H264_PROFILE_IDC_HIGH_444_PREDICTIVE, "HIGH_444_PREDICTIVE" },
+};
+
+const NamedValue kH265Profiles[] = {
+    { STD_VIDEO_H265_PROFILE_IDC_MAIN, "MAIN" },
+    { STD_VIDEO_H265_PROFILE_IDC_MAIN_10, "MAIN_10" },
+    { STD_VIDEO_H265_PROFILE_IDC_MAIN_STILL_PICTURE, "MAIN_STILL_PICTURE" },
+    { STD_VIDEO_H265_PROFILE_IDC_FORMAT_RANGE_EXTENSIONS, "FORMAT_RANGE_EXTENSIONS" },
+    { STD_VIDEO_H265_PROFILE_IDC_SCC_EXTENSIONS, "SCC_EXTENSIONS" },
+};
+
+const NamedValue kAV1Profiles[] = {
+    { STD_VIDEO_AV1_PROFILE_MAIN, "MAIN" },
+    { STD_VIDEO_AV1_PROFILE_HIGH, "HIGH" },
+    { STD_VIDEO_AV1_PROFILE_PROFESSIONAL, "PROFESSIONAL" },
+};
+
+const NamedValue kVP9Profiles[] = {
+    { STD_VIDEO_VP9_PROFILE_0, "0" },
+    { STD_VIDEO_VP9_PROFILE_1, "1" },
+    { STD_VIDEO_VP9_PROFILE_2, "2" },
+    { STD_VIDEO_VP9_PROFILE_3, "3" },
+};
+
+// Return the profile-IDC name table for a codec (and its size via outCount).
+const NamedValue* codecProfiles(VkVideoCodecOperationFlagBitsKHR codec, size_t& outCount)
+{
+    switch (codec) {
+    case VK_VIDEO_CODEC_OPERATION_DECODE_H264_BIT_KHR:
+    case VK_VIDEO_CODEC_OPERATION_ENCODE_H264_BIT_KHR:
+        outCount = sizeof(kH264Profiles) / sizeof(kH264Profiles[0]); return kH264Profiles;
+    case VK_VIDEO_CODEC_OPERATION_DECODE_H265_BIT_KHR:
+    case VK_VIDEO_CODEC_OPERATION_ENCODE_H265_BIT_KHR:
+        outCount = sizeof(kH265Profiles) / sizeof(kH265Profiles[0]); return kH265Profiles;
+    case VK_VIDEO_CODEC_OPERATION_DECODE_AV1_BIT_KHR:
+    case VK_VIDEO_CODEC_OPERATION_ENCODE_AV1_BIT_KHR:
+        outCount = sizeof(kAV1Profiles) / sizeof(kAV1Profiles[0]); return kAV1Profiles;
+    case VK_VIDEO_CODEC_OPERATION_DECODE_VP9_BIT_KHR:
+        outCount = sizeof(kVP9Profiles) / sizeof(kVP9Profiles[0]); return kVP9Profiles;
+    default:
+        outCount = 0; return nullptr;
+    }
+}
+
+bool profileSupported(const VulkanDeviceContext* vkDevCtx, VkVideoCodecOperationFlagBitsKHR codec,
+                      uint32_t profileIdc, VkVideoChromaSubsamplingFlagsKHR chroma,
+                      VkVideoComponentBitDepthFlagsKHR depth)
+{
+    VkVideoCoreProfile profile = makeProfileEx(codec, profileIdc, chroma, depth);
+    if (!profile) {
+        return false;
+    }
+
+    // The driver requires the codec-specific capabilities struct chained into pNext; without
+    // it the query fails for every profile. Chain the matching struct per codec.
+    VkVideoDecodeH264CapabilitiesKHR dec264{ VK_STRUCTURE_TYPE_VIDEO_DECODE_H264_CAPABILITIES_KHR };
+    VkVideoDecodeH265CapabilitiesKHR dec265{ VK_STRUCTURE_TYPE_VIDEO_DECODE_H265_CAPABILITIES_KHR };
+    VkVideoDecodeAV1CapabilitiesKHR  decAV1{ VK_STRUCTURE_TYPE_VIDEO_DECODE_AV1_CAPABILITIES_KHR };
+    VkVideoDecodeVP9CapabilitiesKHR  decVP9{ VK_STRUCTURE_TYPE_VIDEO_DECODE_VP9_CAPABILITIES_KHR };
+    VkVideoEncodeH264CapabilitiesKHR enc264{ VK_STRUCTURE_TYPE_VIDEO_ENCODE_H264_CAPABILITIES_KHR };
+    VkVideoEncodeH265CapabilitiesKHR enc265{ VK_STRUCTURE_TYPE_VIDEO_ENCODE_H265_CAPABILITIES_KHR };
+    VkVideoEncodeAV1CapabilitiesKHR  encAV1{ VK_STRUCTURE_TYPE_VIDEO_ENCODE_AV1_CAPABILITIES_KHR };
+
+    VkVideoDecodeCapabilitiesKHR decodeCaps{ VK_STRUCTURE_TYPE_VIDEO_DECODE_CAPABILITIES_KHR };
+    VkVideoEncodeCapabilitiesKHR encodeCaps{ VK_STRUCTURE_TYPE_VIDEO_ENCODE_CAPABILITIES_KHR };
+
+    void* codecChain = nullptr;
+    void* topChain = nullptr;
+    switch (codec) {
+    case VK_VIDEO_CODEC_OPERATION_DECODE_H264_BIT_KHR: codecChain = &dec264; topChain = &decodeCaps; break;
+    case VK_VIDEO_CODEC_OPERATION_DECODE_H265_BIT_KHR: codecChain = &dec265; topChain = &decodeCaps; break;
+    case VK_VIDEO_CODEC_OPERATION_DECODE_AV1_BIT_KHR:  codecChain = &decAV1; topChain = &decodeCaps; break;
+    case VK_VIDEO_CODEC_OPERATION_DECODE_VP9_BIT_KHR:  codecChain = &decVP9; topChain = &decodeCaps; break;
+    case VK_VIDEO_CODEC_OPERATION_ENCODE_H264_BIT_KHR: codecChain = &enc264; topChain = &encodeCaps; break;
+    case VK_VIDEO_CODEC_OPERATION_ENCODE_H265_BIT_KHR: codecChain = &enc265; topChain = &encodeCaps; break;
+    case VK_VIDEO_CODEC_OPERATION_ENCODE_AV1_BIT_KHR:  codecChain = &encAV1; topChain = &encodeCaps; break;
+    default: return false;
+    }
+    static_cast<VkBaseOutStructure*>(topChain)->pNext = static_cast<VkBaseOutStructure*>(codecChain);
+
+    VkVideoCapabilitiesKHR caps{ VK_STRUCTURE_TYPE_VIDEO_CAPABILITIES_KHR, topChain };
+    return vkDevCtx->GetPhysicalDeviceVideoCapabilitiesKHR(vkDevCtx->getPhysicalDevice(),
+                                                           profile.GetProfile(), &caps) == VK_SUCCESS;
+}
+
+// Emit a "Profiles" section listing every supported (profile, chroma, bitDepth) combination.
+// Unsupported combinations are skipped entirely. In Markdown each supported combo is one
+// table row (profile -> "chroma N-bit"); in JSON it is an object in the "supported" array.
+void emitProfiles(const VulkanDeviceContext* vkDevCtx, VkVideoCodecOperationFlagBitsKHR codec)
+{
+    size_t profileCount = 0;
+    const NamedValue* profiles = codecProfiles(codec, profileCount);
+    const bool json = g_emit->structured();
+
+    g_emit->heading(3, "profiles", "Profiles");
+    if (json) {
+        g_emit->beginArray("supported");
+    }
+    for (size_t p = 0; p < profileCount; ++p) {
+        for (const NamedValue& chroma : kChromaValues) {
+            for (const NamedValue& depth : kDepthValues) {
+                if (!profileSupported(vkDevCtx, codec, profiles[p].value, chroma.value, depth.value)) {
+                    continue;
+                }
+                if (json) {
+                    g_emit->heading(4, "profile", profiles[p].name);
+                    g_emit->str("profile", profiles[p].name);
+                    g_emit->str("chroma", chroma.name);
+                    g_emit->str("bitDepth", depth.name);
+                    g_emit->endSection(4);
+                } else {
+                    g_emit->str(profiles[p].name,
+                                std::string(chroma.name) + " " + depth.name + "-bit");
+                }
+            }
+        }
+    }
+    if (json) {
+        g_emit->endArray();
+    }
+    g_emit->endSection(3);
 }
 
 // Short codec key for headings/JSON (e.g. "h.264"), derived from CodecToName ("decode h.264").
@@ -447,7 +620,7 @@ void dumpDecodeCaps(const VulkanDeviceContext* vkDevCtx, VkVideoCodecOperationFl
         VulkanVideoCapabilities::GetSupportedCodecs(vkDevCtx, vkDevCtx->getPhysicalDevice(),
                                                     &queueFamily, VK_QUEUE_VIDEO_DECODE_BIT_KHR);
     if ((supported & codec) == 0) {
-        emitUnsupported(2, key, key, "not supported (no decode queue family)");
+        emitUnsupported(key, "not supported (no decode queue family)");
         return;
     }
 
@@ -460,11 +633,13 @@ void dumpDecodeCaps(const VulkanDeviceContext* vkDevCtx, VkVideoCodecOperationFl
         char buf[64];
         snprintf(buf, sizeof(buf), "%s (0x%x)",
                  IsVideoUnsupportedResult(result) ? "unsupported, skipped" : "query failed", result);
-        emitUnsupported(2, key, key, buf);
+        emitUnsupported(key, buf);
         return;
     }
 
-    g_emit->heading(2, key, key);
+    beginCodec(key);
+
+    emitProfiles(vkDevCtx, codec);
 
     g_emit->heading(3, "generic", "Generic");
     emitGenericCaps(videoCaps);
@@ -635,8 +810,8 @@ void emitQualityLevel(const VkVideoEncodeQualityLevelPropertiesKHR& q,
 template <class CodecCaps, VkStructureType CodecCapsSType,
           class CodecQMapCaps, VkStructureType CodecQMapCapsSType,
           class CodecQualityLevel, VkStructureType CodecQualityLevelSType>
-bool queryAndDumpEncode(const VulkanDeviceContext* vkDevCtx, const VkVideoCoreProfile& profile,
-                        const std::string& key)
+bool queryAndDumpEncode(const VulkanDeviceContext* vkDevCtx, VkVideoCodecOperationFlagBitsKHR codec,
+                        const VkVideoCoreProfile& profile, const std::string& key)
 {
     VkVideoCapabilitiesKHR videoCaps{};
     VkVideoEncodeCapabilitiesKHR encCaps{};
@@ -653,11 +828,13 @@ bool queryAndDumpEncode(const VulkanDeviceContext* vkDevCtx, const VkVideoCorePr
         char buf[64];
         snprintf(buf, sizeof(buf), "%s (0x%x)",
                  IsVideoUnsupportedResult(result) ? "unsupported, skipped" : "query failed", result);
-        emitUnsupported(2, key, key, buf);
+        emitUnsupported(key, buf);
         return false;
     }
 
-    g_emit->heading(2, key, key);
+    beginCodec(key);
+
+    emitProfiles(vkDevCtx, codec);
 
     g_emit->heading(3, "generic", "Generic");
     emitGenericCaps(videoCaps);
@@ -698,7 +875,7 @@ void dumpEncodeCaps(const VulkanDeviceContext* vkDevCtx, VkVideoCodecOperationFl
         VulkanVideoCapabilities::GetSupportedCodecs(vkDevCtx, vkDevCtx->getPhysicalDevice(),
                                                     &queueFamily, VK_QUEUE_VIDEO_ENCODE_BIT_KHR);
     if ((supported & codec) == 0) {
-        emitUnsupported(2, key, key, "not supported (no encode queue family)");
+        emitUnsupported(key, "not supported (no encode queue family)");
         return;
     }
 
@@ -711,7 +888,7 @@ void dumpEncodeCaps(const VulkanDeviceContext* vkDevCtx, VkVideoCodecOperationFl
                            VK_STRUCTURE_TYPE_VIDEO_ENCODE_H264_QUANTIZATION_MAP_CAPABILITIES_KHR,
                            VkVideoEncodeH264QualityLevelPropertiesKHR,
                            VK_STRUCTURE_TYPE_VIDEO_ENCODE_H264_QUALITY_LEVEL_PROPERTIES_KHR>(
-                               vkDevCtx, profile, key);
+                               vkDevCtx, codec, profile, key);
         break;
     case VK_VIDEO_CODEC_OPERATION_ENCODE_H265_BIT_KHR:
         queryAndDumpEncode<VkVideoEncodeH265CapabilitiesKHR,
@@ -720,7 +897,7 @@ void dumpEncodeCaps(const VulkanDeviceContext* vkDevCtx, VkVideoCodecOperationFl
                            VK_STRUCTURE_TYPE_VIDEO_ENCODE_H265_QUANTIZATION_MAP_CAPABILITIES_KHR,
                            VkVideoEncodeH265QualityLevelPropertiesKHR,
                            VK_STRUCTURE_TYPE_VIDEO_ENCODE_H265_QUALITY_LEVEL_PROPERTIES_KHR>(
-                               vkDevCtx, profile, key);
+                               vkDevCtx, codec, profile, key);
         break;
     case VK_VIDEO_CODEC_OPERATION_ENCODE_AV1_BIT_KHR:
         queryAndDumpEncode<VkVideoEncodeAV1CapabilitiesKHR,
@@ -729,7 +906,7 @@ void dumpEncodeCaps(const VulkanDeviceContext* vkDevCtx, VkVideoCodecOperationFl
                            VK_STRUCTURE_TYPE_VIDEO_ENCODE_AV1_QUANTIZATION_MAP_CAPABILITIES_KHR,
                            VkVideoEncodeAV1QualityLevelPropertiesKHR,
                            VK_STRUCTURE_TYPE_VIDEO_ENCODE_AV1_QUALITY_LEVEL_PROPERTIES_KHR>(
-                               vkDevCtx, profile, key);
+                               vkDevCtx, codec, profile, key);
         break;
     default:
         break;
