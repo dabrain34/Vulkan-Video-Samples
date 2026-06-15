@@ -28,6 +28,7 @@ option(USE_CCACHE "Use ccache" OFF)
 option(BUILD_LOADER "Build loader" ON)
 option(BUILD_TESTS "Build tests" ON)
 option(BUILD_DEMOS "Build demos" ON)
+option(BUILD_TOOLS "Build standalone diagnostic tools" ON)
 
 # Handle ccache
 if(USE_CCACHE)
@@ -463,3 +464,7 @@ if(BUILD_ENCODER)
     endif()
 endif()
 ############ VULKAN_VIDEO_ENCODER_LIB ######################################
+
+if(BUILD_TOOLS AND NOT DEFINED DEQP_TARGET)
+    add_subdirectory(tools/vk-video-caps)
+endif()
