@@ -1,5 +1,5 @@
 /*
- * Copyright 2026 NVIDIA Corporation.
+ * Copyright 2026 Igalia S.L.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -70,8 +70,13 @@ public:
 
     // Start a section. level 1 = '#', 2 = '##', 3 = '###' (Markdown) / nested object (JSON).
     // key is the JSON object key (machine name); title is the human Markdown heading.
+    // A base level (see setBaseLevel) is added so a whole report can be nested deeper, e.g.
+    // as one element of a top-level devices list.
     virtual void heading(int level, const std::string& key, const std::string& title) = 0;
     virtual void endSection(int level) = 0;
+
+    // Shift all subsequent heading levels by `base` (Markdown only; JSON nests structurally).
+    void setBaseLevel(int base) { m_baseLevel = base; }
 
     // Begin/end an array of like sections (JSON only cares; Markdown ignores).
     virtual void beginArray(const std::string& key) = 0;
@@ -93,6 +98,9 @@ public:
     virtual bool structured() const = 0;
 
     virtual void finish() = 0;
+
+protected:
+    int m_baseLevel = 0;
 };
 
 Emitter* g_emit = nullptr;
@@ -106,7 +114,7 @@ public:
     void heading(int level, const std::string&, const std::string& title) override
     {
         flushTable();
-        std::cout << "\n" << std::string(level, '#') << " " << title << "\n";
+        std::cout << "\n" << std::string(m_baseLevel + level, '#') << " " << title << "\n";
     }
     void endSection(int) override { flushTable(); }
     void beginArray(const std::string&) override {}
@@ -310,6 +318,18 @@ void emitUnsupported(const std::string& key, const std::string& reason)
     g_emit->endSection(2);
 }
 
+// Emit a device-level section (## <name>) carrying only a skip note, for a device that
+// could not be initialized. Used as an element of the top-level devices array.
+void emitDeviceSkip(const std::string& name, const std::string& reason)
+{
+    g_emit->heading(1, "device", name);
+    if (g_emit->structured()) {
+        g_emit->str("deviceName", name);
+    }
+    g_emit->note(reason);
+    g_emit->endSection(1);
+}
+
 const FlagName kRateControlModeNames[] = {
     { VK_VIDEO_ENCODE_RATE_CONTROL_MODE_DEFAULT_KHR, "DEFAULT" },
     { VK_VIDEO_ENCODE_RATE_CONTROL_MODE_DISABLED_BIT_KHR, "DISABLED" },
@@ -389,6 +409,23 @@ bool videoEncodeQuantizationMapSupported(const VulkanDeviceContext* vkDevCtx)
     VkPhysicalDeviceFeatures2 features{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2, &qpMap};
     vkDevCtx->GetPhysicalDeviceFeatures2(vkDevCtx->getPhysicalDevice(), &features);
     return qpMap.videoEncodeQuantizationMap == VK_TRUE;
+}
+
+// True if the physical device advertises VK_KHR_video_queue. Checked quietly (no logging)
+// so non-video devices like llvmpipe are filtered out before InitPhysicalDevice, which
+// would otherwise log a missing-extension error to stderr.
+bool deviceHasVideoQueue(const VulkanDeviceContext* vkDevCtx, VkPhysicalDevice phys)
+{
+    std::vector<VkExtensionProperties> exts;
+    if (vk::enumerate(vkDevCtx, phys, nullptr, exts) != VK_SUCCESS) {
+        return false;
+    }
+    for (const auto& ext : exts) {
+        if (strcmp(ext.extensionName, VK_KHR_VIDEO_QUEUE_EXTENSION_NAME) == 0) {
+            return true;
+        }
+    }
+    return false;
 }
 
 // Common VkVideoCapabilitiesKHR fields shared by decode and encode (the "Generic" section).
@@ -969,6 +1006,89 @@ void finishPager()
     g_pager = nullptr;
 }
 
+// Emit the full report for one already-initialized device: Device/Features plus the
+// Decode/Encode codec sections. Heading levels are relative; the caller sets the base level
+// (1 for a single device, 2 when nested as an element of a top-level devices array).
+void dumpDevice(const VulkanDeviceContext* vkDevCtx, bool decodeOnly, bool encodeOnly)
+{
+    VkPhysicalDeviceProperties props{};
+    vkDevCtx->GetPhysicalDeviceProperties(vkDevCtx->getPhysicalDevice(), &props);
+
+    VkPhysicalDeviceDriverProperties driverProps{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DRIVER_PROPERTIES};
+    VkPhysicalDeviceProperties2 props2{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2, &driverProps};
+    vkDevCtx->GetPhysicalDeviceProperties2(vkDevCtx->getPhysicalDevice(), &props2);
+
+    char buf[64];
+
+    g_emit->heading(1, "device", props.deviceName);
+    if (g_emit->structured()) {
+        g_emit->str("deviceName", props.deviceName);
+    }
+    g_emit->str("deviceType", deviceTypeName(props.deviceType));
+    g_emit->str("driverName", driverProps.driverName);
+    g_emit->str("driverInfo", driverProps.driverInfo);
+    snprintf(buf, sizeof(buf), "0x%04x", props.vendorID);
+    g_emit->str("vendorID", buf);
+    snprintf(buf, sizeof(buf), "0x%04x", props.deviceID);
+    g_emit->str("deviceID", buf);
+    snprintf(buf, sizeof(buf), "%u.%u.%u",
+             VK_API_VERSION_MAJOR(props.apiVersion),
+             VK_API_VERSION_MINOR(props.apiVersion),
+             VK_API_VERSION_PATCH(props.apiVersion));
+    g_emit->str("apiVersion", buf);
+    snprintf(buf, sizeof(buf), "0x%08x", props.driverVersion);
+    g_emit->str("driverVersion", buf);
+
+    g_emit->heading(2, "features", "Features");
+    g_emit->boolean("videoMaintenance1",
+                    VulkanVideoCapabilities::GetVideoMaintenance1FeatureSupported(vkDevCtx));
+    g_emit->boolean("videoMaintenance2", videoMaintenance2Supported(vkDevCtx));
+    g_emit->boolean("videoEncodeIntraRefresh",
+                    VulkanVideoCapabilities::IsVideoEncodeIntraRefreshSupported(vkDevCtx));
+    g_emit->boolean("videoEncodeQuantizationMap", videoEncodeQuantizationMapSupported(vkDevCtx));
+    g_emit->endSection(2);
+
+    static const VkVideoCodecOperationFlagBitsKHR decodeCodecs[] = {
+        VK_VIDEO_CODEC_OPERATION_DECODE_H264_BIT_KHR,
+        VK_VIDEO_CODEC_OPERATION_DECODE_H265_BIT_KHR,
+        VK_VIDEO_CODEC_OPERATION_DECODE_AV1_BIT_KHR,
+        VK_VIDEO_CODEC_OPERATION_DECODE_VP9_BIT_KHR,
+    };
+    static const VkVideoCodecOperationFlagBitsKHR encodeCodecs[] = {
+        VK_VIDEO_CODEC_OPERATION_ENCODE_H264_BIT_KHR,
+        VK_VIDEO_CODEC_OPERATION_ENCODE_H265_BIT_KHR,
+        VK_VIDEO_CODEC_OPERATION_ENCODE_AV1_BIT_KHR,
+    };
+
+    // The codec dump helpers hardcode heading levels 2 (codec) / 3 (sub-sections). Nested
+    // under a device they must shift one deeper, so bump the Markdown base level around them.
+    if (!encodeOnly && (vkDevCtx->GetVideoDecodeQueueFamilyIdx() >= 0)) {
+        g_emit->heading(2, "decode", "Decode");
+        g_emit->beginArray("codecs");
+        g_emit->setBaseLevel(1);
+        for (VkVideoCodecOperationFlagBitsKHR codec : decodeCodecs) {
+            dumpDecodeCaps(vkDevCtx, codec);
+        }
+        g_emit->setBaseLevel(0);
+        g_emit->endArray();
+        g_emit->endSection(2);
+    }
+
+    if (!decodeOnly && (vkDevCtx->GetVideoEncodeQueueFamilyIdx() >= 0)) {
+        g_emit->heading(2, "encode", "Encode");
+        g_emit->beginArray("codecs");
+        g_emit->setBaseLevel(1);
+        for (VkVideoCodecOperationFlagBitsKHR codec : encodeCodecs) {
+            dumpEncodeCaps(vkDevCtx, codec);
+        }
+        g_emit->setBaseLevel(0);
+        g_emit->endArray();
+        g_emit->endSection(2);
+    }
+
+    g_emit->endSection(1);
+}
+
 void printUsage(const char* prog)
 {
     std::cout << "Usage: " << prog << " [options]\n"
@@ -1039,17 +1159,13 @@ int main(int argc, const char** argv)
         return EXIT_FAILURE;
     }
 
-    static const char* const requiredDeviceExtensions[] = {
-        VK_KHR_VIDEO_QUEUE_EXTENSION_NAME,
-        VK_KHR_VIDEO_DECODE_QUEUE_EXTENSION_NAME,
-        VK_KHR_VIDEO_ENCODE_QUEUE_EXTENSION_NAME,
-        nullptr
-    };
+    // Primary context: creates the Vulkan instance and enumerates physical devices. The
+    // instance is shared with the per-device contexts below so it is created only once. It
+    // needs no device extensions itself (it never creates a logical/physical device); each
+    // per-device context requests exactly the video extensions that device exposes.
+    VulkanDeviceContext primary;
 
-    VulkanDeviceContext vkDevCtx;
-    vkDevCtx.AddReqDeviceExtensions(requiredDeviceExtensions);
-
-    VkResult result = vkDevCtx.InitVulkanDevice("vk-video-caps", VK_NULL_HANDLE, verbose);
+    VkResult result = primary.InitVulkanDevice("vk-video-caps", VK_NULL_HANDLE, verbose);
     if (result != VK_SUCCESS) {
         if (IsVideoUnsupportedResult(result)) {
             fprintf(stderr, "Could not initialize the Vulkan device: incompatible driver\n");
@@ -1059,31 +1175,12 @@ int main(int argc, const char** argv)
         return EXIT_FAILURE;
     }
 
-    result = vkDevCtx.InitPhysicalDevice(deviceId, deviceUuid,
-                                         (VK_QUEUE_VIDEO_DECODE_BIT_KHR | VK_QUEUE_VIDEO_ENCODE_BIT_KHR),
-                                         nullptr /* headless, no display shell */,
-                                         VK_QUEUE_VIDEO_DECODE_BIT_KHR,
-                                         VulkanDeviceContext::VIDEO_CODEC_OPERATIONS_DECODE,
-                                         VK_QUEUE_VIDEO_ENCODE_BIT_KHR,
-                                         VulkanDeviceContext::VIDEO_CODEC_OPERATIONS_ENCODE,
-                                         VK_NULL_HANDLE, verbose, /*noDeviceFallback*/ false);
-    if (result != VK_SUCCESS) {
-        if (IsVideoUnsupportedResult(result)) {
-            fprintf(stderr, "No physical device with video queue support found\n");
-            return VVS_EXIT_UNSUPPORTED;
-        }
-        fprintf(stderr, "Could not initialize the Vulkan physical device (0x%x)\n", result);
-        return EXIT_FAILURE;
+    std::vector<VkPhysicalDevice> physicalDevices;
+    if (vk::enumerate(&primary, primary.getInstance(), physicalDevices) != VK_SUCCESS ||
+        physicalDevices.empty()) {
+        fprintf(stderr, "No Vulkan physical devices found\n");
+        return VVS_EXIT_UNSUPPORTED;
     }
-
-    VkPhysicalDeviceProperties props{};
-    vkDevCtx.GetPhysicalDeviceProperties(vkDevCtx.getPhysicalDevice(), &props);
-
-    VkPhysicalDeviceDriverProperties driverProps{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DRIVER_PROPERTIES};
-    VkPhysicalDeviceProperties2 props2{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2, &driverProps};
-    vkDevCtx.GetPhysicalDeviceProperties2(vkDevCtx.getPhysicalDevice(), &props2);
-
-    char buf[64];
 
     if (usePager) {
         startPager();
@@ -1099,67 +1196,98 @@ int main(int argc, const char** argv)
         g_emit = &markdown;
     }
 
-    g_emit->heading(1, "device", "Device");
-    g_emit->str("deviceName", props.deviceName);
-    g_emit->str("deviceType", deviceTypeName(props.deviceType));
-    g_emit->str("driverName", driverProps.driverName);
-    g_emit->str("driverInfo", driverProps.driverInfo);
-    snprintf(buf, sizeof(buf), "0x%04x", props.vendorID);
-    g_emit->str("vendorID", buf);
-    snprintf(buf, sizeof(buf), "0x%04x", props.deviceID);
-    g_emit->str("deviceID", buf);
-    snprintf(buf, sizeof(buf), "%u.%u.%u",
-             VK_API_VERSION_MAJOR(props.apiVersion),
-             VK_API_VERSION_MINOR(props.apiVersion),
-             VK_API_VERSION_PATCH(props.apiVersion));
-    g_emit->str("apiVersion", buf);
-    snprintf(buf, sizeof(buf), "0x%08x", props.driverVersion);
-    g_emit->str("driverVersion", buf);
+    g_emit->beginArray("devices");
 
-    g_emit->heading(2, "features", "Features");
-    g_emit->boolean("videoMaintenance1",
-                    VulkanVideoCapabilities::GetVideoMaintenance1FeatureSupported(&vkDevCtx));
-    g_emit->boolean("videoMaintenance2", videoMaintenance2Supported(&vkDevCtx));
-    g_emit->boolean("videoEncodeIntraRefresh",
-                    VulkanVideoCapabilities::IsVideoEncodeIntraRefreshSupported(&vkDevCtx));
-    g_emit->boolean("videoEncodeQuantizationMap", videoEncodeQuantizationMapSupported(&vkDevCtx));
-    g_emit->endSection(2);
-
-    g_emit->endSection(1);
-
-    static const VkVideoCodecOperationFlagBitsKHR decodeCodecs[] = {
-        VK_VIDEO_CODEC_OPERATION_DECODE_H264_BIT_KHR,
-        VK_VIDEO_CODEC_OPERATION_DECODE_H265_BIT_KHR,
-        VK_VIDEO_CODEC_OPERATION_DECODE_AV1_BIT_KHR,
-        VK_VIDEO_CODEC_OPERATION_DECODE_VP9_BIT_KHR,
-    };
-    static const VkVideoCodecOperationFlagBitsKHR encodeCodecs[] = {
-        VK_VIDEO_CODEC_OPERATION_ENCODE_H264_BIT_KHR,
-        VK_VIDEO_CODEC_OPERATION_ENCODE_H265_BIT_KHR,
-        VK_VIDEO_CODEC_OPERATION_ENCODE_AV1_BIT_KHR,
-    };
-
-    if (!encodeOnly && (vkDevCtx.GetVideoDecodeQueueFamilyIdx() >= 0)) {
-        g_emit->heading(1, "decode", "Decode");
-        g_emit->beginArray("codecs");
-        for (VkVideoCodecOperationFlagBitsKHR codec : decodeCodecs) {
-            dumpDecodeCaps(&vkDevCtx, codec);
+    int dumped = 0;
+    for (VkPhysicalDevice phys : physicalDevices) {
+        // Skip non-video devices (e.g. llvmpipe) quietly, before InitPhysicalDevice would
+        // log a missing-extension error.
+        if (!deviceHasVideoQueue(&primary, phys)) {
+            continue;
         }
-        g_emit->endArray();
-        g_emit->endSection(1);
+
+        // Apply the deviceID / deviceUuid filters up front so non-matching devices are
+        // skipped silently rather than producing a "could not init" note for each.
+        if (deviceId != -1 || deviceUuid) {
+            VkPhysicalDeviceVulkan11Properties v11{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_PROPERTIES};
+            VkPhysicalDeviceProperties2 p2{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2, &v11};
+            primary.GetPhysicalDeviceProperties2(phys, &p2);
+            if (deviceId != -1 && p2.properties.deviceID != (uint32_t)deviceId) {
+                continue;
+            }
+            if (deviceUuid && !deviceUuid.Compare(v11.deviceUUID)) {
+                continue;
+            }
+        }
+
+        // Detect which video queues this device actually has. InitPhysicalDevice requires
+        // *every* bit in requestQueueTypes to be present (and logs an error otherwise), so we
+        // request only the video queue families the device really exposes. This lets a
+        // decode-only or encode-only device through instead of demanding both.
+        int32_t qf = -1;
+        bool hasDecode = VulkanVideoCapabilities::GetSupportedCodecs(
+            &primary, phys, &qf, VK_QUEUE_VIDEO_DECODE_BIT_KHR) != VK_VIDEO_CODEC_OPERATION_NONE_KHR;
+        qf = -1;
+        bool hasEncode = VulkanVideoCapabilities::GetSupportedCodecs(
+            &primary, phys, &qf, VK_QUEUE_VIDEO_ENCODE_BIT_KHR) != VK_VIDEO_CODEC_OPERATION_NONE_KHR;
+
+        if (!hasDecode && !hasEncode) {
+            continue; // video_queue extension present but no decode/encode queue family
+        }
+
+        VkQueueFlags requestQueueTypes = 0;
+        if (hasDecode) {
+            requestQueueTypes |= VK_QUEUE_VIDEO_DECODE_BIT_KHR;
+        }
+        if (hasEncode) {
+            requestQueueTypes |= VK_QUEUE_VIDEO_ENCODE_BIT_KHR;
+        }
+
+        // Require only the queue extensions the device actually has: an encode-only device
+        // (e.g. lavapipe) lacks VK_KHR_video_decode_queue, so requiring it unconditionally
+        // would make InitPhysicalDevice reject the device and log an error.
+        std::vector<const char*> deviceExtensions = { VK_KHR_VIDEO_QUEUE_EXTENSION_NAME };
+        if (hasDecode) {
+            deviceExtensions.push_back(VK_KHR_VIDEO_DECODE_QUEUE_EXTENSION_NAME);
+        }
+        if (hasEncode) {
+            deviceExtensions.push_back(VK_KHR_VIDEO_ENCODE_QUEUE_EXTENSION_NAME);
+        }
+        deviceExtensions.push_back(nullptr);
+
+        // Fresh context per device (reusing the shared instance) so queue-family state never
+        // leaks between devices.
+        VulkanDeviceContext devCtx;
+        devCtx.AddReqDeviceExtensions(deviceExtensions.data());
+        if (devCtx.InitVulkanDevice("vk-video-caps", primary.getInstance(), verbose) != VK_SUCCESS) {
+            continue;
+        }
+        VkResult devResult = devCtx.InitPhysicalDevice(
+            deviceId, deviceUuid,
+            requestQueueTypes,
+            nullptr /* headless, no display shell */,
+            VK_QUEUE_VIDEO_DECODE_BIT_KHR, VulkanDeviceContext::VIDEO_CODEC_OPERATIONS_DECODE,
+            VK_QUEUE_VIDEO_ENCODE_BIT_KHR, VulkanDeviceContext::VIDEO_CODEC_OPERATIONS_ENCODE,
+            phys, verbose, /*noDeviceFallback*/ true);
+
+        if (devResult != VK_SUCCESS) {
+            VkPhysicalDeviceProperties props{};
+            primary.GetPhysicalDeviceProperties(phys, &props);
+            emitDeviceSkip(props.deviceName, "skipped: device initialization failed");
+            continue;
+        }
+
+        dumpDevice(&devCtx, decodeOnly, encodeOnly);
+        ++dumped;
     }
 
-    if (!decodeOnly && (vkDevCtx.GetVideoEncodeQueueFamilyIdx() >= 0)) {
-        g_emit->heading(1, "encode", "Encode");
-        g_emit->beginArray("codecs");
-        for (VkVideoCodecOperationFlagBitsKHR codec : encodeCodecs) {
-            dumpEncodeCaps(&vkDevCtx, codec);
-        }
-        g_emit->endArray();
-        g_emit->endSection(1);
-    }
-
+    g_emit->endArray();
     g_emit->finish();
     finishPager();
+
+    if (dumped == 0) {
+        fprintf(stderr, "No matching video-capable device found\n");
+        return VVS_EXIT_UNSUPPORTED;
+    }
     return EXIT_SUCCESS;
 }
