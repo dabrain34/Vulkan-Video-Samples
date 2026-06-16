@@ -974,20 +974,22 @@ void printUsage(const char* prog)
     std::cout << "Usage: " << prog << " [options]\n"
               << "  Enumerate and print Vulkan Video encode/decode capabilities for a GPU.\n\n"
               << "Options:\n"
-              << "  -d, --device <id>   Select physical device by index (default: auto)\n"
-              << "      --decode-only   Only query decode capabilities\n"
-              << "      --encode-only   Only query encode capabilities\n"
-              << "      --verbose       Verbose device initialization\n"
-              << "      --json          Emit JSON instead of Markdown (default: Markdown)\n"
-              << "      --no-pager      Do not page output (default: page through $PAGER on a console)\n"
-              << "  -h, --help          Show this help and exit\n";
+              << "  --deviceID, -deviceID <hex>      Hex ID of the device to be used\n"
+              << "  --deviceUuid, -deviceUuid <uuid> UUID HEX string of the device to be used\n"
+              << "  --decode-only                    Only query decode capabilities\n"
+              << "  --encode-only                    Only query encode capabilities\n"
+              << "  --verbose                        Verbose device initialization\n"
+              << "  --json                           Emit JSON instead of Markdown (default: Markdown)\n"
+              << "  --no-pager                       Do not page output (default: page through $PAGER on a console)\n"
+              << "  -h, --help                       Show this help and exit\n";
 }
 
 } // namespace
 
 int main(int argc, const char** argv)
 {
-    int32_t deviceId = -1;
+    int32_t deviceId = -1;            // PCI device ID (hex) to match; -1 = any
+    vk::DeviceUuidUtils deviceUuid;   // unset = no UUID filter
     bool decodeOnly = false;
     bool encodeOnly = false;
     bool verbose = false;
@@ -999,12 +1001,22 @@ int main(int argc, const char** argv)
         if (!strcmp(arg, "-h") || !strcmp(arg, "--help")) {
             printUsage(argv[0]);
             return EXIT_SUCCESS;
-        } else if (!strcmp(arg, "-d") || !strcmp(arg, "--device")) {
-            if (i + 1 >= argc) {
-                fprintf(stderr, "Error: %s requires an argument\n", arg);
+        } else if (!strcmp(arg, "--deviceID") || !strcmp(arg, "-deviceID")) {
+            if ((i + 1 >= argc) || (sscanf(argv[++i], "%x", &deviceId) != 1)) {
+                fprintf(stderr, "Error: %s requires a hex device ID\n", arg);
                 return EXIT_FAILURE;
             }
-            deviceId = atoi(argv[++i]);
+        } else if (!strcmp(arg, "--deviceUuid") || !strcmp(arg, "-deviceUuid")) {
+            if (i + 1 >= argc) {
+                fprintf(stderr, "Error: %s requires a UUID string\n", arg);
+                return EXIT_FAILURE;
+            }
+            if (deviceUuid.StringToUUID(argv[++i]) != VK_UUID_SIZE) {
+                fprintf(stderr, "Error: invalid deviceUuid '%s'; "
+                                "must be 16 hex values (32 digits, e.g. "
+                                "12345678-1234-1234-1234-123456789abc)\n", argv[i]);
+                return EXIT_FAILURE;
+            }
         } else if (!strcmp(arg, "--decode-only")) {
             decodeOnly = true;
         } else if (!strcmp(arg, "--encode-only")) {
@@ -1047,7 +1059,7 @@ int main(int argc, const char** argv)
         return EXIT_FAILURE;
     }
 
-    result = vkDevCtx.InitPhysicalDevice(deviceId, vk::DeviceUuidUtils(),
+    result = vkDevCtx.InitPhysicalDevice(deviceId, deviceUuid,
                                          (VK_QUEUE_VIDEO_DECODE_BIT_KHR | VK_QUEUE_VIDEO_ENCODE_BIT_KHR),
                                          nullptr /* headless, no display shell */,
                                          VK_QUEUE_VIDEO_DECODE_BIT_KHR,
