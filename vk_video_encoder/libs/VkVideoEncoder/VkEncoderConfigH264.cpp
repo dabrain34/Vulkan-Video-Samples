@@ -50,6 +50,7 @@ int EncoderConfigH264::DoParseArguments(int argc, const char* argv[])
                 fprintf(stderr, "Invalid H.264 profile: %s\n", profileStr.c_str());
                 return -1;
             }
+            profileIdcSpecified = true;
         } else {
             fprintf(stderr, "Unrecognized option: %s\n", argv[i]);
             return -1;
@@ -477,30 +478,55 @@ VkResult EncoderConfigH264::InitDeviceCapabilities(const VulkanDeviceContext* vk
     numRefFrames = numRefL0 + numRefL1;
     entropyCodingMode = h264QualityLevelProperties.preferredStdEntropyCodingModeFlag == VK_TRUE ? ENTROPY_CODING_MODE_CABAC : ENTROPY_CODING_MODE_CAVLC;
 
+    // Re-run profile/level selection now that the device capabilities and the
+    // preferred entropy/8x8 support are known. If the auto-selected profile
+    // changed, the capabilities above were queried under the previous profile,
+    // so rebuild videoCoreProfile and re-query once for the new profile.
+    StdVideoH264ProfileIdc previousProfileIdc = profileIdc;
+    InitProfileLevel(true);
+    if (profileIdc != previousProfileIdc) {
+        if (!capabilitiesRequeried) {
+            // First profile change: the caps above were queried under the old
+            // profile. Rebuild the profile and re-query once for the new one.
+            capabilitiesRequeried = true;
+            InitVideoProfile();
+            return InitDeviceCapabilities(vkDevCtx);
+        }
+        // The profile changed again under the re-queried caps. We won't query a
+        // third time, but videoCoreProfile still reflects the previous profile,
+        // so resync it to keep profileIdc and videoCoreProfile consistent.
+        assert(!"H.264 profile did not converge after one capability re-query");
+        InitVideoProfile();
+    }
+
     return VK_SUCCESS;
 }
 
-void EncoderConfigH264::InitProfileLevel()
+void EncoderConfigH264::InitProfileLevel(bool capsUpdated)
 {
-    // FIXME: Check if the HW supports transform_8x8_mode_is_supported
-    // based on capabilities or profiles supported
-    bool use8x8Transform = true;
+    // Whether to steer profile auto-selection toward HIGH so that
+    // transform_8x8_mode_flag can be signalled. ADAPTIVE_TRANSFORM_AUTOSELECT
+    // follows what the implementation supports, but that is only known once the
+    // device capabilities have been queried (capsUpdated); the explicit modes
+    // override it. The actual PPS flag is still gated against device
+    // capabilities in InitSpsPpsParameters().
+    bool use8x8Transform = false;
 
     if (adaptiveTransformMode == ADAPTIVE_TRANSFORM_ENABLE) {
         use8x8Transform = true;
     } else if (adaptiveTransformMode == ADAPTIVE_TRANSFORM_DISABLE) {
         use8x8Transform = false;
     } else {
-        // Autoselect
-        if ((profileIdc == STD_VIDEO_H264_PROFILE_IDC_INVALID) ||
-            (profileIdc >= STD_VIDEO_H264_PROFILE_IDC_HIGH)) {
-            // Unconditionally enable 8x8 transform
-            use8x8Transform = true;
-        }
+        // Autoselect: enable 8x8 transform only if the implementation supports it.
+        use8x8Transform = capsUpdated &&
+            ((h264EncodeCapabilities.stdSyntaxFlags &
+              VK_VIDEO_ENCODE_H264_STD_TRANSFORM_8X8_MODE_FLAG_SET_BIT_KHR) != 0);
     }
 
-    // If the profileIdc hasn't been specified, force set it now.
-    if (profileIdc == STD_VIDEO_H264_PROFILE_IDC_INVALID) {
+    // Auto-select the profile unless the user pinned one with --profile. Always
+    // recompute from scratch so this stays correct when re-run after the device
+    // transform_8x8 capability becomes known.
+    if (!profileIdcSpecified) {
         profileIdc = STD_VIDEO_H264_PROFILE_IDC_BASELINE;
 
         // Upgrade to MAIN profile if using B-frames or CABAC entropy coding

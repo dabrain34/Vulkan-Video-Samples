@@ -59,6 +59,8 @@ struct EncoderConfigH264 : public EncoderConfig {
 
     EncoderConfigH264()
         : profileIdc(STD_VIDEO_H264_PROFILE_IDC_INVALID)
+        , profileIdcSpecified(false)
+        , capabilitiesRequeried(false)
         , levelIdc(STD_VIDEO_H264_LEVEL_IDC_5_0)
         , h264EncodeCapabilities()
         , hrdBitrate(maxBitrate)
@@ -125,6 +127,8 @@ struct EncoderConfigH264 : public EncoderConfig {
     }
 
     StdVideoH264ProfileIdc                     profileIdc;
+    bool                                       profileIdcSpecified;   // true if the profile was set via --profile (no auto-selection)
+    bool                                       capabilitiesRequeried; // guards the single re-query after an auto profile change
     StdVideoH264LevelIdc                       levelIdc;
     VkVideoEncodeH264CapabilitiesKHR           h264EncodeCapabilities;
     VkVideoEncodeH264QualityLevelPropertiesKHR h264QualityLevelProperties;
@@ -180,8 +184,10 @@ struct EncoderConfigH264 : public EncoderConfig {
         pic_height_in_map_units = DivUp<uint32_t>(encodeHeight, 16);
 
         if ((pic_width_in_mbs > 0) && (pic_height_in_map_units > 0)) {
-            // Initialize codec profile and level based on encoder configuration
-            InitProfileLevel();
+            // Provisional profile/level; device capabilities aren't known yet, so
+            // assume no 8x8 transform. InitDeviceCapabilities() re-runs this once
+            // the actual transform_8x8 support has been probed.
+            InitProfileLevel(false);
             return VK_SUCCESS;
         }
 
@@ -189,7 +195,7 @@ struct EncoderConfigH264 : public EncoderConfig {
         return VK_ERROR_INVALID_VIDEO_STD_PARAMETERS_KHR;
     }
 
-    void InitProfileLevel();
+    void InitProfileLevel(bool capsUpdated);
 
     virtual VkResult InitDeviceCapabilities(const VulkanDeviceContext* vkDevCtx) override;
 
