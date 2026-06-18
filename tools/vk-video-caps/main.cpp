@@ -98,6 +98,10 @@ public:
     // table; JSON ignores it -- structured callers emit a proper array instead).
     virtual void listItem(const char* header, const std::string& value) = 0;
 
+    // Set the column headers for the next two-column table (Markdown only; reset to the
+    // defaults "Field"/"Value" after the table is flushed). No-op in JSON.
+    virtual void tableHeaders(const char* col1, const char* col2) = 0;
+
     // True for structured backends (JSON) where arrays of objects make sense; false for
     // Markdown, which prefers a flat table.
     virtual bool structured() const = 0;
@@ -152,6 +156,11 @@ public:
         m_listHeader = header;
         m_listItems.push_back(value);
     }
+    void tableHeaders(const char* col1, const char* col2) override
+    {
+        m_fieldHdr = col1;
+        m_valueHdr = col2;
+    }
     bool structured() const override { return false; }
     void finish() override { flushTable(); }
 
@@ -171,21 +180,21 @@ private:
         }
 
         // Pad both columns to their widest cell so values line up under each other.
-        std::string fieldHdr = "Field";
-        std::string valueHdr = "Value";
-        size_t fieldWidth = fieldHdr.size();
-        size_t valueWidth = valueHdr.size();
+        size_t fieldWidth = m_fieldHdr.size();
+        size_t valueWidth = m_valueHdr.size();
         for (const auto& row : m_rows) {
             fieldWidth = std::max(fieldWidth, row.first.size());
             valueWidth = std::max(valueWidth, row.second.size());
         }
 
-        std::cout << "\n| " << pad(fieldHdr, fieldWidth) << " | " << pad(valueHdr, valueWidth) << " |\n";
+        std::cout << "\n| " << pad(m_fieldHdr, fieldWidth) << " | " << pad(m_valueHdr, valueWidth) << " |\n";
         std::cout << "| " << std::string(fieldWidth, '-') << " | " << std::string(valueWidth, '-') << " |\n";
         for (const auto& row : m_rows) {
             std::cout << "| " << pad(row.first, fieldWidth) << " | " << pad(row.second, valueWidth) << " |\n";
         }
         m_rows.clear();
+        m_fieldHdr = "Field"; // reset to defaults for the next table
+        m_valueHdr = "Value";
     }
 
     void flushList()
@@ -206,6 +215,8 @@ private:
     }
 
     std::vector<std::pair<std::string, std::string>> m_rows;
+    std::string m_fieldHdr = "Field";
+    std::string m_valueHdr = "Value";
     std::string m_listHeader;
     std::vector<std::string> m_listItems;
 };
@@ -280,6 +291,7 @@ public:
     }
     void note(const std::string& text) override { field_("note"); std::cout << quote(text); }
     void listItem(const char*, const std::string&) override {} // structured callers emit arrays
+    void tableHeaders(const char*, const char*) override {}     // JSON has no table headers
     bool structured() const override { return true; }
 
     void finish() override
@@ -664,6 +676,8 @@ void emitProfiles(const VulkanDeviceContext* vkDevCtx, VkVideoCodecOperationFlag
     g_emit->heading(3, "profiles", "Profiles");
     if (json) {
         g_emit->beginArray("supported");
+    } else {
+        g_emit->tableHeaders("Profile", "ColorSpace");
     }
     for (size_t p = 0; p < profileCount; ++p) {
         for (const NamedValue& chroma : kChromaValues) {
