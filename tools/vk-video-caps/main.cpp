@@ -755,11 +755,11 @@ void dumpDecodeCaps(const VulkanDeviceContext* vkDevCtx, VkVideoCodecOperationFl
             g_emit->str("bitDepth", sp.depthName);
         }
 
-        g_emit->heading(4, "generic", "Generic");
+        g_emit->heading(4, "generic", "VkVideoCapabilitiesKHR");
         emitGenericCaps(videoCaps);
         g_emit->endSection(4);
 
-        g_emit->heading(4, "decode", "Decode");
+        g_emit->heading(4, "decode", "VkVideoDecodeCapabilitiesKHR");
         g_emit->hex("flags", decodeCaps.flags);
         VkFormat pictureFormat = VK_FORMAT_UNDEFINED;
         VkFormat referenceFormat = VK_FORMAT_UNDEFINED;
@@ -930,7 +930,8 @@ template <class CodecCaps, VkStructureType CodecCapsSType,
           class CodecQMapCaps, VkStructureType CodecQMapCapsSType,
           class CodecQualityLevel, VkStructureType CodecQualityLevelSType>
 void emitEncodeProfileCaps(const VulkanDeviceContext* vkDevCtx, const VkVideoCoreProfile& profile,
-                           const std::string& key, const SupportedProfile& sp)
+                           const std::string& key, const char* codecCapsName,
+                           const SupportedProfile& sp)
 {
     VkVideoCapabilitiesKHR videoCaps{};
     VkVideoEncodeCapabilitiesKHR encCaps{};
@@ -954,11 +955,11 @@ void emitEncodeProfileCaps(const VulkanDeviceContext* vkDevCtx, const VkVideoCor
         g_emit->str("bitDepth", sp.depthName);
     }
 
-    g_emit->heading(4, "generic", "Generic");
+    g_emit->heading(4, "generic", "VkVideoCapabilitiesKHR");
     emitGenericCaps(videoCaps);
     g_emit->endSection(4);
 
-    g_emit->heading(4, "encode", "Encode");
+    g_emit->heading(4, "encode", "VkVideoEncodeCapabilitiesKHR");
     emitEncodeCommon(encCaps, qmapCaps);
     g_emit->endSection(4);
 
@@ -966,7 +967,7 @@ void emitEncodeProfileCaps(const VulkanDeviceContext* vkDevCtx, const VkVideoCor
     emitIntraRefresh(intraRefreshCaps);
     g_emit->endSection(4);
 
-    g_emit->heading(4, key, key);
+    g_emit->heading(4, key, codecCapsName);
     emitCodecCaps(codecCaps);
     g_emit->endSection(4);
 
@@ -996,7 +997,7 @@ void emitEncodeProfile(const VulkanDeviceContext* vkDevCtx, VkVideoCodecOperatio
                               VK_STRUCTURE_TYPE_VIDEO_ENCODE_H264_QUANTIZATION_MAP_CAPABILITIES_KHR,
                               VkVideoEncodeH264QualityLevelPropertiesKHR,
                               VK_STRUCTURE_TYPE_VIDEO_ENCODE_H264_QUALITY_LEVEL_PROPERTIES_KHR>(
-                                  vkDevCtx, profile, key, sp);
+                                  vkDevCtx, profile, key, "VkVideoEncodeH264CapabilitiesKHR", sp);
         break;
     case VK_VIDEO_CODEC_OPERATION_ENCODE_H265_BIT_KHR:
         emitEncodeProfileCaps<VkVideoEncodeH265CapabilitiesKHR,
@@ -1005,7 +1006,7 @@ void emitEncodeProfile(const VulkanDeviceContext* vkDevCtx, VkVideoCodecOperatio
                               VK_STRUCTURE_TYPE_VIDEO_ENCODE_H265_QUANTIZATION_MAP_CAPABILITIES_KHR,
                               VkVideoEncodeH265QualityLevelPropertiesKHR,
                               VK_STRUCTURE_TYPE_VIDEO_ENCODE_H265_QUALITY_LEVEL_PROPERTIES_KHR>(
-                                  vkDevCtx, profile, key, sp);
+                                  vkDevCtx, profile, key, "VkVideoEncodeH265CapabilitiesKHR", sp);
         break;
     case VK_VIDEO_CODEC_OPERATION_ENCODE_AV1_BIT_KHR:
         emitEncodeProfileCaps<VkVideoEncodeAV1CapabilitiesKHR,
@@ -1014,7 +1015,7 @@ void emitEncodeProfile(const VulkanDeviceContext* vkDevCtx, VkVideoCodecOperatio
                               VK_STRUCTURE_TYPE_VIDEO_ENCODE_AV1_QUANTIZATION_MAP_CAPABILITIES_KHR,
                               VkVideoEncodeAV1QualityLevelPropertiesKHR,
                               VK_STRUCTURE_TYPE_VIDEO_ENCODE_AV1_QUALITY_LEVEL_PROPERTIES_KHR>(
-                                  vkDevCtx, profile, key, sp);
+                                  vkDevCtx, profile, key, "VkVideoEncodeAV1CapabilitiesKHR", sp);
         break;
     default:
         break;
