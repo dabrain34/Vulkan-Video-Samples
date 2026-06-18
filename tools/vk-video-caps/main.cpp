@@ -714,6 +714,57 @@ std::string codecKey(VkVideoCodecOperationFlagBitsKHR codec)
     return (space == std::string::npos) ? name : name.substr(space + 1);
 }
 
+// Query and emit the codec-specific decode caps struct (VkVideoDecodeXxxCapabilitiesKHR) for
+// the given profile. The shared GetVideoDecodeCapabilities() drops the codec struct on return,
+// so query it directly here with the struct chained into pNext.
+void emitDecodeCodecCaps(const VulkanDeviceContext* vkDevCtx, VkVideoCodecOperationFlagBitsKHR codec,
+                         const VkVideoCoreProfile& profile, const std::string& key)
+{
+    VkVideoDecodeH264CapabilitiesKHR h264{ VK_STRUCTURE_TYPE_VIDEO_DECODE_H264_CAPABILITIES_KHR };
+    VkVideoDecodeH265CapabilitiesKHR h265{ VK_STRUCTURE_TYPE_VIDEO_DECODE_H265_CAPABILITIES_KHR };
+    VkVideoDecodeAV1CapabilitiesKHR  av1 { VK_STRUCTURE_TYPE_VIDEO_DECODE_AV1_CAPABILITIES_KHR };
+    VkVideoDecodeVP9CapabilitiesKHR  vp9 { VK_STRUCTURE_TYPE_VIDEO_DECODE_VP9_CAPABILITIES_KHR };
+
+    void* codecChain = nullptr;
+    const char* name = nullptr;
+    switch (codec) {
+    case VK_VIDEO_CODEC_OPERATION_DECODE_H264_BIT_KHR: codecChain = &h264; name = "VkVideoDecodeH264CapabilitiesKHR"; break;
+    case VK_VIDEO_CODEC_OPERATION_DECODE_H265_BIT_KHR: codecChain = &h265; name = "VkVideoDecodeH265CapabilitiesKHR"; break;
+    case VK_VIDEO_CODEC_OPERATION_DECODE_AV1_BIT_KHR:  codecChain = &av1;  name = "VkVideoDecodeAV1CapabilitiesKHR";  break;
+    case VK_VIDEO_CODEC_OPERATION_DECODE_VP9_BIT_KHR:  codecChain = &vp9;  name = "VkVideoDecodeVP9CapabilitiesKHR";  break;
+    default: return;
+    }
+
+    VkVideoDecodeCapabilitiesKHR decodeCaps{ VK_STRUCTURE_TYPE_VIDEO_DECODE_CAPABILITIES_KHR, codecChain };
+    VkVideoCapabilitiesKHR caps{ VK_STRUCTURE_TYPE_VIDEO_CAPABILITIES_KHR, &decodeCaps };
+    if (vkDevCtx->GetPhysicalDeviceVideoCapabilitiesKHR(vkDevCtx->getPhysicalDevice(),
+                                                        profile.GetProfile(), &caps) != VK_SUCCESS) {
+        return;
+    }
+
+    g_emit->heading(4, key, name);
+    switch (codec) {
+    case VK_VIDEO_CODEC_OPERATION_DECODE_H264_BIT_KHR:
+        g_emit->u64("maxLevelIdc", h264.maxLevelIdc);
+        g_emit->str("fieldOffsetGranularity",
+                    std::to_string(h264.fieldOffsetGranularity.x) + " x " +
+                    std::to_string(h264.fieldOffsetGranularity.y));
+        break;
+    case VK_VIDEO_CODEC_OPERATION_DECODE_H265_BIT_KHR:
+        g_emit->u64("maxLevelIdc", h265.maxLevelIdc);
+        break;
+    case VK_VIDEO_CODEC_OPERATION_DECODE_AV1_BIT_KHR:
+        g_emit->u64("maxLevel", av1.maxLevel);
+        break;
+    case VK_VIDEO_CODEC_OPERATION_DECODE_VP9_BIT_KHR:
+        g_emit->u64("maxLevel", vp9.maxLevel);
+        break;
+    default:
+        break;
+    }
+    g_emit->endSection(4);
+}
+
 void dumpDecodeCaps(const VulkanDeviceContext* vkDevCtx, VkVideoCodecOperationFlagBitsKHR codec)
 {
     std::string key = codecKey(codec);
@@ -769,6 +820,8 @@ void dumpDecodeCaps(const VulkanDeviceContext* vkDevCtx, VkVideoCodecOperationFl
             emitFormat("referencePicturesFormat", referenceFormat);
         }
         g_emit->endSection(4);
+
+        emitDecodeCodecCaps(vkDevCtx, codec, profile, key);
 
         g_emit->endSection(3);
     }
