@@ -532,29 +532,6 @@ VkVideoCoreProfile makeProfileEx(VkVideoCodecOperationFlagBitsKHR codec, uint32_
     }
 }
 
-// Representative 8-bit 4:2:0 Main profile used for the detailed capability dump.
-VkVideoCoreProfile makeProfile(VkVideoCodecOperationFlagBitsKHR codec)
-{
-    uint32_t mainIdc = 0;
-    switch (codec) {
-    case VK_VIDEO_CODEC_OPERATION_DECODE_H264_BIT_KHR:
-    case VK_VIDEO_CODEC_OPERATION_ENCODE_H264_BIT_KHR:
-        mainIdc = STD_VIDEO_H264_PROFILE_IDC_MAIN; break;
-    case VK_VIDEO_CODEC_OPERATION_DECODE_H265_BIT_KHR:
-    case VK_VIDEO_CODEC_OPERATION_ENCODE_H265_BIT_KHR:
-        mainIdc = STD_VIDEO_H265_PROFILE_IDC_MAIN; break;
-    case VK_VIDEO_CODEC_OPERATION_DECODE_AV1_BIT_KHR:
-    case VK_VIDEO_CODEC_OPERATION_ENCODE_AV1_BIT_KHR:
-        mainIdc = STD_VIDEO_AV1_PROFILE_MAIN; break;
-    case VK_VIDEO_CODEC_OPERATION_DECODE_VP9_BIT_KHR:
-        mainIdc = STD_VIDEO_VP9_PROFILE_0; break;
-    default:
-        return VkVideoCoreProfile();
-    }
-    return makeProfileEx(codec, mainIdc, VK_VIDEO_CHROMA_SUBSAMPLING_420_BIT_KHR,
-                         VK_VIDEO_COMPONENT_BIT_DEPTH_8_BIT_KHR);
-}
-
 // --- Profile matrix probing ---------------------------------------------------------------
 
 struct NamedValue {
@@ -664,13 +641,46 @@ bool profileSupported(const VulkanDeviceContext* vkDevCtx, VkVideoCodecOperation
                                                            profile.GetProfile(), &caps) == VK_SUCCESS;
 }
 
-// Emit a "Profiles" section listing every supported (profile, chroma, bitDepth) combination.
-// Unsupported combinations are skipped entirely. In Markdown each supported combo is one
-// table row (profile -> "chroma N-bit"); in JSON it is an object in the "supported" array.
-void emitProfiles(const VulkanDeviceContext* vkDevCtx, VkVideoCodecOperationFlagBitsKHR codec)
+// A (profile, chroma, bitDepth) combination the device supports, with display names.
+struct SupportedProfile {
+    uint32_t profileIdc;
+    const char* profileName;
+    VkVideoChromaSubsamplingFlagsKHR chroma;
+    const char* chromaName;
+    VkVideoComponentBitDepthFlagsKHR depth;
+    const char* depthName;
+};
+
+// Probe the full profile x chroma x bitDepth matrix and return the supported combinations.
+std::vector<SupportedProfile> collectSupportedProfiles(const VulkanDeviceContext* vkDevCtx,
+                                                       VkVideoCodecOperationFlagBitsKHR codec)
 {
+    std::vector<SupportedProfile> result;
     size_t profileCount = 0;
     const NamedValue* profiles = codecProfiles(codec, profileCount);
+    for (size_t p = 0; p < profileCount; ++p) {
+        for (const NamedValue& chroma : kChromaValues) {
+            for (const NamedValue& depth : kDepthValues) {
+                if (profileSupported(vkDevCtx, codec, profiles[p].value, chroma.value, depth.value)) {
+                    result.push_back({ profiles[p].value, profiles[p].name,
+                                       chroma.value, chroma.name, depth.value, depth.name });
+                }
+            }
+        }
+    }
+    return result;
+}
+
+// A human label for a supported profile, e.g. "HIGH_444_PREDICTIVE 444 8-bit".
+std::string profileLabel(const SupportedProfile& sp)
+{
+    return std::string(sp.profileName) + " " + sp.chromaName + " " + sp.depthName + "-bit";
+}
+
+// Emit a "Profiles" section listing every supported (profile, chroma, bitDepth) combination.
+// In Markdown each supported combo is one table row; in JSON it is an object in "supported".
+void emitProfiles(const std::vector<SupportedProfile>& profiles)
+{
     const bool json = g_emit->structured();
 
     g_emit->heading(3, "profiles", "Profiles");
@@ -679,23 +689,15 @@ void emitProfiles(const VulkanDeviceContext* vkDevCtx, VkVideoCodecOperationFlag
     } else {
         g_emit->tableHeaders("Profile", "ColorSpace");
     }
-    for (size_t p = 0; p < profileCount; ++p) {
-        for (const NamedValue& chroma : kChromaValues) {
-            for (const NamedValue& depth : kDepthValues) {
-                if (!profileSupported(vkDevCtx, codec, profiles[p].value, chroma.value, depth.value)) {
-                    continue;
-                }
-                if (json) {
-                    g_emit->heading(4, "profile", profiles[p].name);
-                    g_emit->str("profile", profiles[p].name);
-                    g_emit->str("chroma", chroma.name);
-                    g_emit->str("bitDepth", depth.name);
-                    g_emit->endSection(4);
-                } else {
-                    g_emit->str(profiles[p].name,
-                                std::string(chroma.name) + " " + depth.name + "-bit");
-                }
-            }
+    for (const SupportedProfile& sp : profiles) {
+        if (json) {
+            g_emit->heading(4, "profile", sp.profileName);
+            g_emit->str("profile", sp.profileName);
+            g_emit->str("chroma", sp.chromaName);
+            g_emit->str("bitDepth", sp.depthName);
+            g_emit->endSection(4);
+        } else {
+            g_emit->str(sp.profileName, std::string(sp.chromaName) + " " + sp.depthName + "-bit");
         }
     }
     if (json) {
@@ -725,37 +727,52 @@ void dumpDecodeCaps(const VulkanDeviceContext* vkDevCtx, VkVideoCodecOperationFl
         return;
     }
 
-    VkVideoCoreProfile profile = makeProfile(codec);
-    VkVideoCapabilitiesKHR videoCaps{};
-    VkVideoDecodeCapabilitiesKHR decodeCaps{};
-    VkResult result = VulkanVideoCapabilities::GetVideoDecodeCapabilities(vkDevCtx, profile,
-                                                                          videoCaps, decodeCaps);
-    if (result != VK_SUCCESS) {
-        char buf[64];
-        snprintf(buf, sizeof(buf), "%s (0x%x)",
-                 IsVideoUnsupportedResult(result) ? "unsupported, skipped" : "query failed", result);
-        emitUnsupported(key, buf);
+    std::vector<SupportedProfile> profiles = collectSupportedProfiles(vkDevCtx, codec);
+    if (profiles.empty()) {
+        emitUnsupported(key, "no supported profiles");
         return;
     }
 
     beginCodec(key);
+    emitProfiles(profiles);
 
-    emitProfiles(vkDevCtx, codec);
+    // Capabilities are queried per profile and can differ (e.g. 4:2:0 vs 4:4:4), so emit a
+    // detail block for each supported profile rather than a single representative one.
+    g_emit->beginArray("profileCaps");
+    for (const SupportedProfile& sp : profiles) {
+        VkVideoCoreProfile profile = makeProfileEx(codec, sp.profileIdc, sp.chroma, sp.depth);
+        VkVideoCapabilitiesKHR videoCaps{};
+        VkVideoDecodeCapabilitiesKHR decodeCaps{};
+        if (VulkanVideoCapabilities::GetVideoDecodeCapabilities(vkDevCtx, profile,
+                                                                videoCaps, decodeCaps) != VK_SUCCESS) {
+            continue;
+        }
 
-    g_emit->heading(3, "generic", "Generic");
-    emitGenericCaps(videoCaps);
-    g_emit->endSection(3);
+        g_emit->heading(3, "profileCaps", profileLabel(sp));
+        if (g_emit->structured()) {
+            g_emit->str("profile", sp.profileName);
+            g_emit->str("chroma", sp.chromaName);
+            g_emit->str("bitDepth", sp.depthName);
+        }
 
-    g_emit->heading(3, "decode", "Decode");
-    g_emit->hex("flags", decodeCaps.flags);
-    VkFormat pictureFormat = VK_FORMAT_UNDEFINED;
-    VkFormat referenceFormat = VK_FORMAT_UNDEFINED;
-    if (VulkanVideoCapabilities::GetSupportedVideoFormats(vkDevCtx, profile, decodeCaps.flags,
-                                                          pictureFormat, referenceFormat) == VK_SUCCESS) {
-        emitFormat("pictureFormat", pictureFormat);
-        emitFormat("referencePicturesFormat", referenceFormat);
+        g_emit->heading(4, "generic", "Generic");
+        emitGenericCaps(videoCaps);
+        g_emit->endSection(4);
+
+        g_emit->heading(4, "decode", "Decode");
+        g_emit->hex("flags", decodeCaps.flags);
+        VkFormat pictureFormat = VK_FORMAT_UNDEFINED;
+        VkFormat referenceFormat = VK_FORMAT_UNDEFINED;
+        if (VulkanVideoCapabilities::GetSupportedVideoFormats(vkDevCtx, profile, decodeCaps.flags,
+                                                              pictureFormat, referenceFormat) == VK_SUCCESS) {
+            emitFormat("pictureFormat", pictureFormat);
+            emitFormat("referencePicturesFormat", referenceFormat);
+        }
+        g_emit->endSection(4);
+
+        g_emit->endSection(3);
     }
-    g_emit->endSection(3);
+    g_emit->endArray();
 
     g_emit->endSection(2);
 }
@@ -905,14 +922,15 @@ void emitQualityLevel(const VkVideoEncodeQualityLevelPropertiesKHR& q,
     g_emit->u64("preferredMaxBidirectionalCompoundReferenceCount", c.preferredMaxBidirectionalCompoundReferenceCount);
 }
 
-// Each encode codec carries distinct codec-capabilities and quality-level structs, so the
-// templated queries must be instantiated per codec. The per-codec dumps are selected by
-// overload resolution on printCodecCaps()/printQualityLevel().
+// Emit one profile's encode capability block (Generic / Encode / Intra-refresh / codec /
+// Quality level). Each encode codec carries distinct codec-capabilities and quality-level
+// structs, so the templated queries are instantiated per codec; the per-codec dumps are
+// selected by overload resolution on emitCodecCaps()/emitQualityLevel().
 template <class CodecCaps, VkStructureType CodecCapsSType,
           class CodecQMapCaps, VkStructureType CodecQMapCapsSType,
           class CodecQualityLevel, VkStructureType CodecQualityLevelSType>
-bool queryAndDumpEncode(const VulkanDeviceContext* vkDevCtx, VkVideoCodecOperationFlagBitsKHR codec,
-                        const VkVideoCoreProfile& profile, const std::string& key)
+void emitEncodeProfileCaps(const VulkanDeviceContext* vkDevCtx, const VkVideoCoreProfile& profile,
+                           const std::string& key, const SupportedProfile& sp)
 {
     VkVideoCapabilitiesKHR videoCaps{};
     VkVideoEncodeCapabilitiesKHR encCaps{};
@@ -926,45 +944,81 @@ bool queryAndDumpEncode(const VulkanDeviceContext* vkDevCtx, VkVideoCodecOperati
             vkDevCtx, profile, videoCaps, encCaps, codecCaps,
             qmapCaps, codecQMapCaps, intraRefreshCaps);
     if (result != VK_SUCCESS) {
-        char buf[64];
-        snprintf(buf, sizeof(buf), "%s (0x%x)",
-                 IsVideoUnsupportedResult(result) ? "unsupported, skipped" : "query failed", result);
-        emitUnsupported(key, buf);
-        return false;
+        return;
     }
 
-    beginCodec(key);
+    g_emit->heading(3, "profileCaps", profileLabel(sp));
+    if (g_emit->structured()) {
+        g_emit->str("profile", sp.profileName);
+        g_emit->str("chroma", sp.chromaName);
+        g_emit->str("bitDepth", sp.depthName);
+    }
 
-    emitProfiles(vkDevCtx, codec);
-
-    g_emit->heading(3, "generic", "Generic");
+    g_emit->heading(4, "generic", "Generic");
     emitGenericCaps(videoCaps);
-    g_emit->endSection(3);
+    g_emit->endSection(4);
 
-    g_emit->heading(3, "encode", "Encode");
+    g_emit->heading(4, "encode", "Encode");
     emitEncodeCommon(encCaps, qmapCaps);
-    g_emit->endSection(3);
+    g_emit->endSection(4);
 
-    g_emit->heading(3, "intraRefresh", "Intra-refresh");
+    g_emit->heading(4, "intraRefresh", "Intra-refresh");
     emitIntraRefresh(intraRefreshCaps);
-    g_emit->endSection(3);
+    g_emit->endSection(4);
 
-    g_emit->heading(3, key, key);
+    g_emit->heading(4, key, key);
     emitCodecCaps(codecCaps);
-    g_emit->endSection(3);
+    g_emit->endSection(4);
 
     VkVideoEncodeQualityLevelPropertiesKHR qualityLevel{};
     CodecQualityLevel codecQualityLevel{};
     if (VulkanVideoCapabilities::GetPhysicalDeviceVideoEncodeQualityLevelProperties<
             CodecQualityLevel, CodecQualityLevelSType>(
                 vkDevCtx, profile, /*qualityLevel*/ 0, qualityLevel, codecQualityLevel) == VK_SUCCESS) {
-        g_emit->heading(3, "qualityLevel", "Quality level");
+        g_emit->heading(4, "qualityLevel", "Quality level");
         emitQualityLevel(qualityLevel, codecQualityLevel);
-        g_emit->endSection(3);
+        g_emit->endSection(4);
     }
 
-    g_emit->endSection(2);
-    return true;
+    g_emit->endSection(3);
+}
+
+// Dispatch one profile's encode caps to the right per-codec template instantiation.
+void emitEncodeProfile(const VulkanDeviceContext* vkDevCtx, VkVideoCodecOperationFlagBitsKHR codec,
+                       const std::string& key, const SupportedProfile& sp)
+{
+    VkVideoCoreProfile profile = makeProfileEx(codec, sp.profileIdc, sp.chroma, sp.depth);
+    switch (codec) {
+    case VK_VIDEO_CODEC_OPERATION_ENCODE_H264_BIT_KHR:
+        emitEncodeProfileCaps<VkVideoEncodeH264CapabilitiesKHR,
+                              VK_STRUCTURE_TYPE_VIDEO_ENCODE_H264_CAPABILITIES_KHR,
+                              VkVideoEncodeH264QuantizationMapCapabilitiesKHR,
+                              VK_STRUCTURE_TYPE_VIDEO_ENCODE_H264_QUANTIZATION_MAP_CAPABILITIES_KHR,
+                              VkVideoEncodeH264QualityLevelPropertiesKHR,
+                              VK_STRUCTURE_TYPE_VIDEO_ENCODE_H264_QUALITY_LEVEL_PROPERTIES_KHR>(
+                                  vkDevCtx, profile, key, sp);
+        break;
+    case VK_VIDEO_CODEC_OPERATION_ENCODE_H265_BIT_KHR:
+        emitEncodeProfileCaps<VkVideoEncodeH265CapabilitiesKHR,
+                              VK_STRUCTURE_TYPE_VIDEO_ENCODE_H265_CAPABILITIES_KHR,
+                              VkVideoEncodeH265QuantizationMapCapabilitiesKHR,
+                              VK_STRUCTURE_TYPE_VIDEO_ENCODE_H265_QUANTIZATION_MAP_CAPABILITIES_KHR,
+                              VkVideoEncodeH265QualityLevelPropertiesKHR,
+                              VK_STRUCTURE_TYPE_VIDEO_ENCODE_H265_QUALITY_LEVEL_PROPERTIES_KHR>(
+                                  vkDevCtx, profile, key, sp);
+        break;
+    case VK_VIDEO_CODEC_OPERATION_ENCODE_AV1_BIT_KHR:
+        emitEncodeProfileCaps<VkVideoEncodeAV1CapabilitiesKHR,
+                              VK_STRUCTURE_TYPE_VIDEO_ENCODE_AV1_CAPABILITIES_KHR,
+                              VkVideoEncodeAV1QuantizationMapCapabilitiesKHR,
+                              VK_STRUCTURE_TYPE_VIDEO_ENCODE_AV1_QUANTIZATION_MAP_CAPABILITIES_KHR,
+                              VkVideoEncodeAV1QualityLevelPropertiesKHR,
+                              VK_STRUCTURE_TYPE_VIDEO_ENCODE_AV1_QUALITY_LEVEL_PROPERTIES_KHR>(
+                                  vkDevCtx, profile, key, sp);
+        break;
+    default:
+        break;
+    }
 }
 
 void dumpEncodeCaps(const VulkanDeviceContext* vkDevCtx, VkVideoCodecOperationFlagBitsKHR codec)
@@ -980,38 +1034,24 @@ void dumpEncodeCaps(const VulkanDeviceContext* vkDevCtx, VkVideoCodecOperationFl
         return;
     }
 
-    VkVideoCoreProfile profile = makeProfile(codec);
-    switch (codec) {
-    case VK_VIDEO_CODEC_OPERATION_ENCODE_H264_BIT_KHR:
-        queryAndDumpEncode<VkVideoEncodeH264CapabilitiesKHR,
-                           VK_STRUCTURE_TYPE_VIDEO_ENCODE_H264_CAPABILITIES_KHR,
-                           VkVideoEncodeH264QuantizationMapCapabilitiesKHR,
-                           VK_STRUCTURE_TYPE_VIDEO_ENCODE_H264_QUANTIZATION_MAP_CAPABILITIES_KHR,
-                           VkVideoEncodeH264QualityLevelPropertiesKHR,
-                           VK_STRUCTURE_TYPE_VIDEO_ENCODE_H264_QUALITY_LEVEL_PROPERTIES_KHR>(
-                               vkDevCtx, codec, profile, key);
-        break;
-    case VK_VIDEO_CODEC_OPERATION_ENCODE_H265_BIT_KHR:
-        queryAndDumpEncode<VkVideoEncodeH265CapabilitiesKHR,
-                           VK_STRUCTURE_TYPE_VIDEO_ENCODE_H265_CAPABILITIES_KHR,
-                           VkVideoEncodeH265QuantizationMapCapabilitiesKHR,
-                           VK_STRUCTURE_TYPE_VIDEO_ENCODE_H265_QUANTIZATION_MAP_CAPABILITIES_KHR,
-                           VkVideoEncodeH265QualityLevelPropertiesKHR,
-                           VK_STRUCTURE_TYPE_VIDEO_ENCODE_H265_QUALITY_LEVEL_PROPERTIES_KHR>(
-                               vkDevCtx, codec, profile, key);
-        break;
-    case VK_VIDEO_CODEC_OPERATION_ENCODE_AV1_BIT_KHR:
-        queryAndDumpEncode<VkVideoEncodeAV1CapabilitiesKHR,
-                           VK_STRUCTURE_TYPE_VIDEO_ENCODE_AV1_CAPABILITIES_KHR,
-                           VkVideoEncodeAV1QuantizationMapCapabilitiesKHR,
-                           VK_STRUCTURE_TYPE_VIDEO_ENCODE_AV1_QUANTIZATION_MAP_CAPABILITIES_KHR,
-                           VkVideoEncodeAV1QualityLevelPropertiesKHR,
-                           VK_STRUCTURE_TYPE_VIDEO_ENCODE_AV1_QUALITY_LEVEL_PROPERTIES_KHR>(
-                               vkDevCtx, codec, profile, key);
-        break;
-    default:
-        break;
+    std::vector<SupportedProfile> profiles = collectSupportedProfiles(vkDevCtx, codec);
+    if (profiles.empty()) {
+        emitUnsupported(key, "no supported profiles");
+        return;
     }
+
+    beginCodec(key);
+    emitProfiles(profiles);
+
+    // Capabilities are queried per profile and can differ (e.g. 4:2:0 vs 4:4:4), so emit a
+    // detail block for each supported profile rather than a single representative one.
+    g_emit->beginArray("profileCaps");
+    for (const SupportedProfile& sp : profiles) {
+        emitEncodeProfile(vkDevCtx, codec, key, sp);
+    }
+    g_emit->endArray();
+
+    g_emit->endSection(2);
 }
 
 // Page our stdout through a pager, modeled on gst-inspect: page only when stdout is a
