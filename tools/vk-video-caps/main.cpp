@@ -77,6 +77,7 @@ public:
 
     // Shift all subsequent heading levels by `base` (Markdown only; JSON nests structurally).
     void setBaseLevel(int base) { m_baseLevel = base; }
+    int baseLevel() const { return m_baseLevel; }
 
     // Begin/end an array of like sections (JSON only cares; Markdown ignores).
     virtual void beginArray(const std::string& key) = 0;
@@ -92,6 +93,10 @@ public:
 
     // A standalone note (e.g. "not supported") attached to the current section.
     virtual void note(const std::string& text) = 0;
+
+    // Add a value to a single-column list with the given header (Markdown renders a one-column
+    // table; JSON ignores it -- structured callers emit a proper array instead).
+    virtual void listItem(const char* header, const std::string& value) = 0;
 
     // True for structured backends (JSON) where arrays of objects make sense; false for
     // Markdown, which prefers a flat table.
@@ -142,14 +147,25 @@ public:
         addRow(field, decoded.empty() ? std::string(buf) : std::string(buf) + " [" + decoded + "]");
     }
     void note(const std::string& text) override { flushTable(); std::cout << "\n" << text << "\n"; }
+    void listItem(const char* header, const std::string& value) override
+    {
+        m_listHeader = header;
+        m_listItems.push_back(value);
+    }
     bool structured() const override { return false; }
     void finish() override { flushTable(); }
 
 private:
     void addRow(const char* field, const std::string& value) { m_rows.emplace_back(field, value); }
 
+    static std::string pad(const std::string& s, size_t width)
+    {
+        return s + std::string(width - s.size(), ' ');
+    }
+
     void flushTable()
     {
+        flushList();
         if (m_rows.empty()) {
             return;
         }
@@ -164,10 +180,6 @@ private:
             valueWidth = std::max(valueWidth, row.second.size());
         }
 
-        auto pad = [](const std::string& s, size_t width) {
-            return s + std::string(width - s.size(), ' ');
-        };
-
         std::cout << "\n| " << pad(fieldHdr, fieldWidth) << " | " << pad(valueHdr, valueWidth) << " |\n";
         std::cout << "| " << std::string(fieldWidth, '-') << " | " << std::string(valueWidth, '-') << " |\n";
         for (const auto& row : m_rows) {
@@ -176,7 +188,26 @@ private:
         m_rows.clear();
     }
 
+    void flushList()
+    {
+        if (m_listItems.empty()) {
+            return;
+        }
+        size_t width = m_listHeader.size();
+        for (const auto& item : m_listItems) {
+            width = std::max(width, item.size());
+        }
+        std::cout << "\n| " << pad(m_listHeader, width) << " |\n";
+        std::cout << "| " << std::string(width, '-') << " |\n";
+        for (const auto& item : m_listItems) {
+            std::cout << "| " << pad(item, width) << " |\n";
+        }
+        m_listItems.clear();
+    }
+
     std::vector<std::pair<std::string, std::string>> m_rows;
+    std::string m_listHeader;
+    std::vector<std::string> m_listItems;
 };
 
 // ----- JSON backend -----------------------------------------------------------------------
@@ -248,6 +279,7 @@ public:
         std::cout << "] }";
     }
     void note(const std::string& text) override { field_("note"); std::cout << quote(text); }
+    void listItem(const char*, const std::string&) override {} // structured callers emit arrays
     bool structured() const override { return true; }
 
     void finish() override
@@ -393,24 +425,6 @@ const char* deviceTypeName(VkPhysicalDeviceType type)
     }
 }
 
-bool videoMaintenance2Supported(const VulkanDeviceContext* vkDevCtx)
-{
-    VkPhysicalDeviceVideoMaintenance2FeaturesKHR maint2{
-        VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VIDEO_MAINTENANCE_2_FEATURES_KHR, nullptr, VK_FALSE};
-    VkPhysicalDeviceFeatures2 features{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2, &maint2};
-    vkDevCtx->GetPhysicalDeviceFeatures2(vkDevCtx->getPhysicalDevice(), &features);
-    return maint2.videoMaintenance2 == VK_TRUE;
-}
-
-bool videoEncodeQuantizationMapSupported(const VulkanDeviceContext* vkDevCtx)
-{
-    VkPhysicalDeviceVideoEncodeQuantizationMapFeaturesKHR qpMap{
-        VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VIDEO_ENCODE_QUANTIZATION_MAP_FEATURES_KHR, nullptr, VK_FALSE};
-    VkPhysicalDeviceFeatures2 features{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2, &qpMap};
-    vkDevCtx->GetPhysicalDeviceFeatures2(vkDevCtx->getPhysicalDevice(), &features);
-    return qpMap.videoEncodeQuantizationMap == VK_TRUE;
-}
-
 // True if the physical device advertises VK_KHR_video_queue. Checked quietly (no logging)
 // so non-video devices like llvmpipe are filtered out before InitPhysicalDevice, which
 // would otherwise log a missing-extension error to stderr.
@@ -426,6 +440,42 @@ bool deviceHasVideoQueue(const VulkanDeviceContext* vkDevCtx, VkPhysicalDevice p
         }
     }
     return false;
+}
+
+// True if the device passes the optional deviceID (hex) and deviceUuid selection filters.
+bool deviceMatchesFilter(const VulkanDeviceContext* vkDevCtx, VkPhysicalDevice phys,
+                         int32_t deviceId, const vk::DeviceUuidUtils& deviceUuid)
+{
+    if (deviceId == -1 && !deviceUuid) {
+        return true;
+    }
+    VkPhysicalDeviceVulkan11Properties v11{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_PROPERTIES};
+    VkPhysicalDeviceProperties2 p2{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2, &v11};
+    vkDevCtx->GetPhysicalDeviceProperties2(phys, &p2);
+    if (deviceId != -1 && p2.properties.deviceID != (uint32_t)deviceId) {
+        return false;
+    }
+    if (deviceUuid && !deviceUuid.Compare(v11.deviceUUID)) {
+        return false;
+    }
+    return true;
+}
+
+// Sorted list of the device's VK_KHR_video_* extension names.
+std::vector<std::string> videoExtensions(const VulkanDeviceContext* vkDevCtx, VkPhysicalDevice phys)
+{
+    std::vector<std::string> result;
+    std::vector<VkExtensionProperties> exts;
+    if (vk::enumerate(vkDevCtx, phys, nullptr, exts) != VK_SUCCESS) {
+        return result;
+    }
+    for (const auto& ext : exts) {
+        if (strncmp(ext.extensionName, "VK_KHR_video", strlen("VK_KHR_video")) == 0) {
+            result.emplace_back(ext.extensionName);
+        }
+    }
+    std::sort(result.begin(), result.end());
+    return result;
 }
 
 // Common VkVideoCapabilitiesKHR fields shared by decode and encode (the "Generic" section).
@@ -1039,15 +1089,6 @@ void dumpDevice(const VulkanDeviceContext* vkDevCtx, bool decodeOnly, bool encod
     snprintf(buf, sizeof(buf), "0x%08x", props.driverVersion);
     g_emit->str("driverVersion", buf);
 
-    g_emit->heading(2, "features", "Features");
-    g_emit->boolean("videoMaintenance1",
-                    VulkanVideoCapabilities::GetVideoMaintenance1FeatureSupported(vkDevCtx));
-    g_emit->boolean("videoMaintenance2", videoMaintenance2Supported(vkDevCtx));
-    g_emit->boolean("videoEncodeIntraRefresh",
-                    VulkanVideoCapabilities::IsVideoEncodeIntraRefreshSupported(vkDevCtx));
-    g_emit->boolean("videoEncodeQuantizationMap", videoEncodeQuantizationMapSupported(vkDevCtx));
-    g_emit->endSection(2);
-
     static const VkVideoCodecOperationFlagBitsKHR decodeCodecs[] = {
         VK_VIDEO_CODEC_OPERATION_DECODE_H264_BIT_KHR,
         VK_VIDEO_CODEC_OPERATION_DECODE_H265_BIT_KHR,
@@ -1061,15 +1102,17 @@ void dumpDevice(const VulkanDeviceContext* vkDevCtx, bool decodeOnly, bool encod
     };
 
     // The codec dump helpers hardcode heading levels 2 (codec) / 3 (sub-sections). Nested
-    // under a device they must shift one deeper, so bump the Markdown base level around them.
+    // under a device they must shift one deeper, so bump the Markdown base level around them
+    // (additively, so this composes with any base level dumpDevice itself is called under).
+    const int base = g_emit->baseLevel();
     if (!encodeOnly && (vkDevCtx->GetVideoDecodeQueueFamilyIdx() >= 0)) {
         g_emit->heading(2, "decode", "Decode");
         g_emit->beginArray("codecs");
-        g_emit->setBaseLevel(1);
+        g_emit->setBaseLevel(base + 1);
         for (VkVideoCodecOperationFlagBitsKHR codec : decodeCodecs) {
             dumpDecodeCaps(vkDevCtx, codec);
         }
-        g_emit->setBaseLevel(0);
+        g_emit->setBaseLevel(base);
         g_emit->endArray();
         g_emit->endSection(2);
     }
@@ -1077,15 +1120,67 @@ void dumpDevice(const VulkanDeviceContext* vkDevCtx, bool decodeOnly, bool encod
     if (!decodeOnly && (vkDevCtx->GetVideoEncodeQueueFamilyIdx() >= 0)) {
         g_emit->heading(2, "encode", "Encode");
         g_emit->beginArray("codecs");
-        g_emit->setBaseLevel(1);
+        g_emit->setBaseLevel(base + 1);
         for (VkVideoCodecOperationFlagBitsKHR codec : encodeCodecs) {
             dumpEncodeCaps(vkDevCtx, codec);
         }
-        g_emit->setBaseLevel(0);
+        g_emit->setBaseLevel(base);
         g_emit->endArray();
         g_emit->endSection(2);
     }
 
+    g_emit->endSection(1);
+}
+
+// Emit the top "Summary" section: one entry per video-capable device (after filtering) with
+// its name, driver, and the VK_KHR_video_* extensions it advertises. JSON emits an
+// "extensions" array per device; Markdown lists one device per row with the extensions joined.
+void emitSummary(const VulkanDeviceContext* primary,
+                 const std::vector<VkPhysicalDevice>& physicalDevices,
+                 int32_t deviceId, const vk::DeviceUuidUtils& deviceUuid)
+{
+    const bool json = g_emit->structured();
+
+    g_emit->heading(1, "summary", "Summary");
+    g_emit->beginArray("devices");
+
+    for (VkPhysicalDevice phys : physicalDevices) {
+        if (!deviceHasVideoQueue(primary, phys) ||
+            !deviceMatchesFilter(primary, phys, deviceId, deviceUuid)) {
+            continue;
+        }
+
+        VkPhysicalDeviceDriverProperties driverProps{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DRIVER_PROPERTIES};
+        VkPhysicalDeviceProperties2 p2{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2, &driverProps};
+        primary->GetPhysicalDeviceProperties2(phys, &p2);
+
+        std::vector<std::string> exts = videoExtensions(primary, phys);
+
+        if (json) {
+            g_emit->heading(2, "device", p2.properties.deviceName);
+            g_emit->str("deviceName", p2.properties.deviceName);
+            g_emit->str("driverName", driverProps.driverName);
+            g_emit->beginArray("extensions");
+            for (const std::string& ext : exts) {
+                g_emit->heading(3, "extension", ext);
+                g_emit->str("name", ext);
+                g_emit->endSection(3);
+            }
+            g_emit->endArray();
+            g_emit->endSection(2);
+        } else {
+            // One sub-section per device with its video extensions as a single-column list.
+            std::string title = std::string(p2.properties.deviceName) +
+                                " (" + driverProps.driverName + ")";
+            g_emit->heading(2, "device", title);
+            for (const std::string& ext : exts) {
+                g_emit->listItem("Video extensions", ext);
+            }
+            g_emit->endSection(2);
+        }
+    }
+
+    g_emit->endArray();
     g_emit->endSection(1);
 }
 
@@ -1196,28 +1291,25 @@ int main(int argc, const char** argv)
         g_emit = &markdown;
     }
 
+    emitSummary(&primary, physicalDevices, deviceId, deviceUuid);
+
+    // "# Devices" umbrella so each device is "## <name>" with "### Features" etc. underneath.
+    // In JSON the beginArray below already names the "devices" key, so the heading is
+    // Markdown-only; setBaseLevel(1) shifts each device's report one level deeper.
+    if (!g_emit->structured()) {
+        g_emit->heading(1, "devices", "Devices");
+    }
     g_emit->beginArray("devices");
+    g_emit->setBaseLevel(1);
 
     int dumped = 0;
     for (VkPhysicalDevice phys : physicalDevices) {
         // Skip non-video devices (e.g. llvmpipe) quietly, before InitPhysicalDevice would
-        // log a missing-extension error.
-        if (!deviceHasVideoQueue(&primary, phys)) {
+        // log a missing-extension error. Apply the deviceID / deviceUuid selection filters
+        // up front too, so non-matching devices are skipped silently.
+        if (!deviceHasVideoQueue(&primary, phys) ||
+            !deviceMatchesFilter(&primary, phys, deviceId, deviceUuid)) {
             continue;
-        }
-
-        // Apply the deviceID / deviceUuid filters up front so non-matching devices are
-        // skipped silently rather than producing a "could not init" note for each.
-        if (deviceId != -1 || deviceUuid) {
-            VkPhysicalDeviceVulkan11Properties v11{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_PROPERTIES};
-            VkPhysicalDeviceProperties2 p2{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2, &v11};
-            primary.GetPhysicalDeviceProperties2(phys, &p2);
-            if (deviceId != -1 && p2.properties.deviceID != (uint32_t)deviceId) {
-                continue;
-            }
-            if (deviceUuid && !deviceUuid.Compare(v11.deviceUUID)) {
-                continue;
-            }
         }
 
         // Detect which video queues this device actually has. InitPhysicalDevice requires
@@ -1281,6 +1373,7 @@ int main(int argc, const char** argv)
         ++dumped;
     }
 
+    g_emit->setBaseLevel(0);
     g_emit->endArray();
     g_emit->finish();
     finishPager();
