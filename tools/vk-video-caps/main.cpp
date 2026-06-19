@@ -787,8 +787,21 @@ void dumpDecodeCaps(const VulkanDeviceContext* vkDevCtx, VkVideoCodecOperationFl
     beginCodec(key);
     emitProfiles(profiles);
 
-    // Capabilities are queried per profile and can differ (e.g. 4:2:0 vs 4:4:4), so emit a
-    // detail block for each supported profile rather than a single representative one.
+    // The common VkVideoCapabilitiesKHR is codec-level (not profile-specific), so emit it once.
+    {
+        VkVideoCoreProfile profile = makeProfileEx(codec, profiles[0].profileIdc,
+                                                   profiles[0].chroma, profiles[0].depth);
+        VkVideoCapabilitiesKHR videoCaps{};
+        VkVideoDecodeCapabilitiesKHR decodeCaps{};
+        if (VulkanVideoCapabilities::GetVideoDecodeCapabilities(vkDevCtx, profile,
+                                                                videoCaps, decodeCaps) == VK_SUCCESS) {
+            g_emit->heading(3, "generic", "VkVideoCapabilitiesKHR");
+            emitGenericCaps(videoCaps);
+            g_emit->endSection(3);
+        }
+    }
+
+    // The remaining capabilities are queried per profile and can differ (e.g. 4:2:0 vs 4:4:4).
     g_emit->beginArray("profileCaps");
     for (const SupportedProfile& sp : profiles) {
         VkVideoCoreProfile profile = makeProfileEx(codec, sp.profileIdc, sp.chroma, sp.depth);
@@ -805,10 +818,6 @@ void dumpDecodeCaps(const VulkanDeviceContext* vkDevCtx, VkVideoCodecOperationFl
             g_emit->str("chroma", sp.chromaName);
             g_emit->str("bitDepth", sp.depthName);
         }
-
-        g_emit->heading(4, "generic", "VkVideoCapabilitiesKHR");
-        emitGenericCaps(videoCaps);
-        g_emit->endSection(4);
 
         g_emit->heading(4, "decode", "VkVideoDecodeCapabilitiesKHR");
         g_emit->hex("flags", decodeCaps.flags);
@@ -1008,10 +1017,6 @@ void emitEncodeProfileCaps(const VulkanDeviceContext* vkDevCtx, const VkVideoCor
         g_emit->str("bitDepth", sp.depthName);
     }
 
-    g_emit->heading(4, "generic", "VkVideoCapabilitiesKHR");
-    emitGenericCaps(videoCaps);
-    g_emit->endSection(4);
-
     g_emit->heading(4, "encode", "VkVideoEncodeCapabilitiesKHR");
     emitEncodeCommon(encCaps, qmapCaps);
     g_emit->endSection(4);
@@ -1075,6 +1080,37 @@ void emitEncodeProfile(const VulkanDeviceContext* vkDevCtx, VkVideoCodecOperatio
     }
 }
 
+// Query and emit the common VkVideoCapabilitiesKHR once for an encode codec. The encode caps
+// query requires the codec-specific struct chained into pNext, so select it per codec.
+void emitEncodeGeneric(const VulkanDeviceContext* vkDevCtx, VkVideoCodecOperationFlagBitsKHR codec,
+                       const SupportedProfile& sp)
+{
+    VkVideoCoreProfile profile = makeProfileEx(codec, sp.profileIdc, sp.chroma, sp.depth);
+
+    VkVideoEncodeH264CapabilitiesKHR h264{ VK_STRUCTURE_TYPE_VIDEO_ENCODE_H264_CAPABILITIES_KHR };
+    VkVideoEncodeH265CapabilitiesKHR h265{ VK_STRUCTURE_TYPE_VIDEO_ENCODE_H265_CAPABILITIES_KHR };
+    VkVideoEncodeAV1CapabilitiesKHR  av1 { VK_STRUCTURE_TYPE_VIDEO_ENCODE_AV1_CAPABILITIES_KHR };
+
+    void* codecChain = nullptr;
+    switch (codec) {
+    case VK_VIDEO_CODEC_OPERATION_ENCODE_H264_BIT_KHR: codecChain = &h264; break;
+    case VK_VIDEO_CODEC_OPERATION_ENCODE_H265_BIT_KHR: codecChain = &h265; break;
+    case VK_VIDEO_CODEC_OPERATION_ENCODE_AV1_BIT_KHR:  codecChain = &av1;  break;
+    default: return;
+    }
+
+    VkVideoEncodeCapabilitiesKHR encCaps{ VK_STRUCTURE_TYPE_VIDEO_ENCODE_CAPABILITIES_KHR, codecChain };
+    VkVideoCapabilitiesKHR videoCaps{ VK_STRUCTURE_TYPE_VIDEO_CAPABILITIES_KHR, &encCaps };
+    if (vkDevCtx->GetPhysicalDeviceVideoCapabilitiesKHR(vkDevCtx->getPhysicalDevice(),
+                                                        profile.GetProfile(), &videoCaps) != VK_SUCCESS) {
+        return;
+    }
+
+    g_emit->heading(3, "generic", "VkVideoCapabilitiesKHR");
+    emitGenericCaps(videoCaps);
+    g_emit->endSection(3);
+}
+
 void dumpEncodeCaps(const VulkanDeviceContext* vkDevCtx, VkVideoCodecOperationFlagBitsKHR codec)
 {
     std::string key = codecKey(codec);
@@ -1097,8 +1133,12 @@ void dumpEncodeCaps(const VulkanDeviceContext* vkDevCtx, VkVideoCodecOperationFl
     beginCodec(key);
     emitProfiles(profiles);
 
-    // Capabilities are queried per profile and can differ (e.g. 4:2:0 vs 4:4:4), so emit a
-    // detail block for each supported profile rather than a single representative one.
+    // The common VkVideoCapabilitiesKHR is codec-level (not profile-specific), so emit it once.
+    // The encode caps query requires the codec-specific struct chained, so go through the
+    // first profile's codec-typed path.
+    emitEncodeGeneric(vkDevCtx, codec, profiles[0]);
+
+    // The remaining capabilities are queried per profile and can differ (e.g. 4:2:0 vs 4:4:4).
     g_emit->beginArray("profileCaps");
     for (const SupportedProfile& sp : profiles) {
         emitEncodeProfile(vkDevCtx, codec, key, sp);
