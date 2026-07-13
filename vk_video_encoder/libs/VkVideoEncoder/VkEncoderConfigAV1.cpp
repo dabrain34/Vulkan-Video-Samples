@@ -217,7 +217,8 @@ VkResult EncoderConfigAV1::InitDeviceCapabilities(const VulkanDeviceContext* vkD
                                                          av1EncodeCapabilities,
                                                          quantizationMapCapabilities,
                                                          av1QuantizationMapCapabilities,
-                                                         intraRefreshCapabilities);
+                                                         intraRefreshCapabilities,
+                                                         feedback2Capabilities);
     if (result != VK_SUCCESS) {
         // Distinguish between "not supported" and "actual error"
         if (IsVideoUnsupportedResult(result)) {

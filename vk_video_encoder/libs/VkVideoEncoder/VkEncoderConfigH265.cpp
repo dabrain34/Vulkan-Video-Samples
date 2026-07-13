@@ -122,7 +122,8 @@ VkResult EncoderConfigH265::InitDeviceCapabilities(const VulkanDeviceContext* vk
                                                                  h265EncodeCapabilities,
                                                                  quantizationMapCapabilities,
                                                                  h265QuantizationMapCapabilities,
-                                                                 intraRefreshCapabilities);
+                                                                 intraRefreshCapabilities,
+                                                                 feedback2Capabilities);
     if (result != VK_SUCCESS) {
         // Distinguish between "not supported" and "actual error"
         if (IsVideoUnsupportedResult(result)) {

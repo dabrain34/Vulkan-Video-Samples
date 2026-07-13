@@ -67,9 +67,15 @@ public:
                                                VkVideoEncodeCodecCapabilitiesKHR& videoCodecCapabilities,
                                                VkVideoEncodeQuantizationMapCapabilitiesKHR& quantizationMapCapabilities,
                                                VkVideoEncodeCodecQuantizationMapCapabilitiesKHR& codecQuantizationMapCapabilities,
-                                               VkVideoEncodeIntraRefreshCapabilitiesKHR& intraRefreshCapabilities) {
+                                               VkVideoEncodeIntraRefreshCapabilitiesKHR& intraRefreshCapabilities,
+                                               VkVideoEncodeFeedback2CapabilitiesKHR& feedback2Capabilities) {
 
-        intraRefreshCapabilities = VkVideoEncodeIntraRefreshCapabilitiesKHR { VK_STRUCTURE_TYPE_VIDEO_ENCODE_INTRA_REFRESH_CAPABILITIES_KHR, nullptr };
+        feedback2Capabilities = VkVideoEncodeFeedback2CapabilitiesKHR { VK_STRUCTURE_TYPE_VIDEO_ENCODE_FEEDBACK_2_CAPABILITIES_KHR, nullptr };
+
+        // Drivers without VK_KHR_video_encode_feedback2 must not receive its capability sType.
+        void* const intraRefreshPNext = vkDevCtx->GetVideoEncodeFeedback2Enabled() ?
+                                            static_cast<void*>(&feedback2Capabilities) : nullptr;
+        intraRefreshCapabilities = VkVideoEncodeIntraRefreshCapabilitiesKHR { VK_STRUCTURE_TYPE_VIDEO_ENCODE_INTRA_REFRESH_CAPABILITIES_KHR, intraRefreshPNext };
         codecQuantizationMapCapabilities = VkVideoEncodeCodecQuantizationMapCapabilitiesKHR { VK_STRUCTURE_TYPE_VIDEO_ENCODE_CODEC_QUANTIZATION_MAP_CAPABILITIES_KHR, &intraRefreshCapabilities };
         quantizationMapCapabilities = VkVideoEncodeQuantizationMapCapabilitiesKHR { VK_STRUCTURE_TYPE_VIDEO_ENCODE_QUANTIZATION_MAP_CAPABILITIES_KHR, &codecQuantizationMapCapabilities };
         videoCodecCapabilities  = VkVideoEncodeCodecCapabilitiesKHR { VK_STRUCTURE_TYPE_VIDEO_ENCODE_CODEC_CAPABILITIES_KHR, &quantizationMapCapabilities };

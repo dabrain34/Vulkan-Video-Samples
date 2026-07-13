@@ -1529,15 +1529,29 @@ VkResult VkVideoEncoder::InitEncoder(VkSharedBaseObj<EncoderConfig>& encoderConf
         }
 
         if (av1Config->enablePerPartitionFeedback) {
+            const VkVideoEncodeFeedback2CapabilitiesKHR& feedback2Caps = encoderConfig->feedback2Capabilities;
+            const VkVideoEncodePerPartitionFeedbackFlagsKHR requestedPerPartitionFlags =
+                VK_VIDEO_ENCODE_PER_PARTITION_FEEDBACK_STATUS_BIT_KHR |
+                VK_VIDEO_ENCODE_PER_PARTITION_FEEDBACK_BITSTREAM_BUFFER_OFFSET_BIT_KHR |
+                VK_VIDEO_ENCODE_PER_PARTITION_FEEDBACK_BITSTREAM_BYTES_WRITTEN_BIT_KHR;
+            const VkVideoEncodePerPartitionFeedbackFlagsKHR unsupportedPerPartitionFlags =
+                requestedPerPartitionFlags & ~feedback2Caps.supportedPerPartitionEncodeFeedbackFlags;
+
+            if ((feedback2Caps.maxPerPartitionFeedbackEntries == 0) || (unsupportedPerPartitionFlags != 0)) {
+                std::cerr << "Per-partition encode feedback is not supported: maxPerPartitionFeedbackEntries "
+                          << feedback2Caps.maxPerPartitionFeedbackEntries
+                          << ", unsupported per-partition flags 0x" << std::hex << unsupportedPerPartitionFlags
+                          << std::dec << std::endl;
+                return VK_ERROR_FEATURE_NOT_PRESENT;
+            }
+
             encodeFeedbackFlags |= VK_VIDEO_ENCODE_FEEDBACK_PICTURE_PARTITION_COUNT_BIT_KHR;
 
             perPartitionFeedbackCreateInfo.pNext = feedbackPNext;
             perPartitionFeedbackCreateInfo.maxPerPartitionFeedbackEntries =
-                std::max(1u, av1Config->maxPerPartitionFeedbackEntries);
-            perPartitionFeedbackCreateInfo.perPartitionEncodeFeedbackFlags =
-                VK_VIDEO_ENCODE_PER_PARTITION_FEEDBACK_STATUS_BIT_KHR |
-                VK_VIDEO_ENCODE_PER_PARTITION_FEEDBACK_BITSTREAM_BUFFER_OFFSET_BIT_KHR |
-                VK_VIDEO_ENCODE_PER_PARTITION_FEEDBACK_BITSTREAM_BYTES_WRITTEN_BIT_KHR;
+                std::min(std::max(1u, av1Config->maxPerPartitionFeedbackEntries),
+                         feedback2Caps.maxPerPartitionFeedbackEntries);
+            perPartitionFeedbackCreateInfo.perPartitionEncodeFeedbackFlags = requestedPerPartitionFlags;
             feedbackPNext = &perPartitionFeedbackCreateInfo;
             perPartitionFeedbackEnabled = true;
         }
