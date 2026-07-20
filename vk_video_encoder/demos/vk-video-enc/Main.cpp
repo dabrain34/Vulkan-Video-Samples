@@ -87,6 +87,11 @@ int main(int argc, const char* argv[])
     vkDevCtxt.AddReqDeviceExtensions(requiredDeviceExtension);
     vkDevCtxt.AddOptDeviceExtensions(optinalDeviceExtension);
 
+    if (encoderConfig->EncodeFeedback2Requested()) {
+        vkDevCtxt.SetVideoEncodeFeedback2Enabled(true);
+        vkDevCtxt.AddReqDeviceExtension(VK_KHR_VIDEO_ENCODE_FEEDBACK_2_EXTENSION_NAME);
+    }
+
     /********** Start WSI instance extensions support *******************************************/
     if (encoderConfig->enableFramePresent) {
         const std::vector<VkExtensionProperties>& wsiRequiredInstanceInstanceExtensions =
