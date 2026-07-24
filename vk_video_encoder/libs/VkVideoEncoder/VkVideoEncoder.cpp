@@ -46,6 +46,34 @@ static size_t getFormatTexelSize(VkFormat format)
     }
 }
 
+static const char* getEncodeFeedbackFlagName(VkVideoEncodeFeedbackFlagBitsKHR flag)
+{
+    switch (flag) {
+    case VK_VIDEO_ENCODE_FEEDBACK_BITSTREAM_BUFFER_OFFSET_BIT_KHR:
+        return "BITSTREAM_BUFFER_OFFSET";
+    case VK_VIDEO_ENCODE_FEEDBACK_BITSTREAM_BYTES_WRITTEN_BIT_KHR:
+        return "BITSTREAM_BYTES_WRITTEN";
+    case VK_VIDEO_ENCODE_FEEDBACK_BITSTREAM_HAS_OVERRIDES_BIT_KHR:
+        return "BITSTREAM_HAS_OVERRIDES";
+    case VK_VIDEO_ENCODE_FEEDBACK_AVERAGE_QUANTIZATION_BIT_KHR:
+        return "AVERAGE_QUANTIZATION";
+    case VK_VIDEO_ENCODE_FEEDBACK_MIN_QUANTIZATION_BIT_KHR:
+        return "MIN_QUANTIZATION";
+    case VK_VIDEO_ENCODE_FEEDBACK_MAX_QUANTIZATION_BIT_KHR:
+        return "MAX_QUANTIZATION";
+    case VK_VIDEO_ENCODE_FEEDBACK_INTRA_PIXELS_BIT_KHR:
+        return "INTRA_PIXELS";
+    case VK_VIDEO_ENCODE_FEEDBACK_INTER_PIXELS_BIT_KHR:
+        return "INTER_PIXELS";
+    case VK_VIDEO_ENCODE_FEEDBACK_SKIPPED_PIXELS_BIT_KHR:
+        return "SKIPPED_PIXELS";
+    case VK_VIDEO_ENCODE_FEEDBACK_PICTURE_PARTITION_COUNT_BIT_KHR:
+        return "PICTURE_PARTITION_COUNT";
+    default:
+        return "UNKNOWN";
+    }
+}
+
 VkResult VkVideoEncoder::CreateVideoEncoder(const VulkanDeviceContext* vkDevCtx,
                                             VkSharedBaseObj<EncoderConfig>& encoderConfig,
                                             VkSharedBaseObj<VkVideoEncoder>& encoder)
@@ -1585,8 +1613,18 @@ VkResult VkVideoEncoder::InitEncoder(VkSharedBaseObj<EncoderConfig>& encoderConf
     const VkVideoEncodeFeedbackFlagsKHR unsupportedFeedbackFlags =
         encodeFeedbackFlags & ~supportedFeedbackFlags;
     if (unsupportedFeedbackFlags != 0) {
-        std::cerr << "Requested encode feedback flags are not supported: 0x"
-                  << std::hex << unsupportedFeedbackFlags << std::dec << std::endl;
+        // Report each unsupported flag individually so the user can tell
+        // exactly which requested feedback the implementation lacks.
+        for (uint32_t flagBit = 1; flagBit != 0; flagBit <<= 1) {
+            if ((unsupportedFeedbackFlags & flagBit) == 0) {
+                continue;
+            }
+            std::cerr << "Requested encode feedback '"
+                      << getEncodeFeedbackFlagName(
+                             (VkVideoEncodeFeedbackFlagBitsKHR)flagBit)
+                      << "' (0x" << std::hex << flagBit << std::dec
+                      << ") is not supported by the implementation." << std::endl;
+        }
         return VK_ERROR_FEATURE_NOT_PRESENT;
     }
 
