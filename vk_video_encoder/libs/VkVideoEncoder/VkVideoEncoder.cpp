@@ -1884,6 +1884,15 @@ VkResult VkVideoEncoder::InitEncoder(VkSharedBaseObj<EncoderConfig>& encoderConf
             return VK_ERROR_FEATURE_NOT_PRESENT;
         }
 
+        // The partition count is a picture-level flag, so it is governed by
+        // supportedEncodeFeedbackFlags, not the feedback2 capabilities.
+        if ((supportedFeedbackFlags &
+             VK_VIDEO_ENCODE_FEEDBACK_PICTURE_PARTITION_COUNT_BIT_KHR) == 0) {
+            std::cerr << "Per-partition encode feedback requires picture partition count "
+                         "feedback, which is not supported by the implementation." << std::endl;
+            return VK_ERROR_FEATURE_NOT_PRESENT;
+        }
+
         encodeFeedbackFlags |= VK_VIDEO_ENCODE_FEEDBACK_PICTURE_PARTITION_COUNT_BIT_KHR;
 
         perPartitionFeedbackCreateInfo.pNext = feedbackPNext;
