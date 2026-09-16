@@ -80,6 +80,7 @@ struct DecoderConfig {
         outputcrcPerFrame = false;
         outputcrc = false;
         crcOutputFileName.clear();
+        logLevel = static_cast<int>(LogLevel::LOG_INFO);
     }
 
     using ProgramArgs = std::vector<ArgSpec>;
@@ -117,6 +118,20 @@ struct DecoderConfig {
                 [](const char **, const ProgramArgs &) {
                     fprintf(stdout, "%s\n", VKVS_VERSION_STRING);
                     exit(EXIT_SUCCESS);
+                    return true;
+                }},
+            {"--logLevel", "-l", 1, "Set the log level: 0 none, 1 error, 2 warning, 3 info (default), 4 debug",
+                [this](const char **args, const ProgramArgs &a) {
+                    char* end = nullptr;
+                    const long level = strtol(args[0], &end, 10);
+                    if ((end == args[0]) || (*end != '\0') ||
+                        (level < static_cast<long>(LogLevel::LOG_NONE)) ||
+                        (level > static_cast<long>(LogLevel::LOG_DEBUG))) {
+                        std::cerr << "Invalid log level \"" << args[0] << "\"" << std::endl;
+                        return false;
+                    }
+                    logLevel = static_cast<int>(level);
+                    Logger::instance().setLogLevel(logLevel);
                     return true;
                 }},
             {"--disableStrDemux", nullptr, 0, "Disable stream demuxing",
@@ -462,6 +477,7 @@ struct DecoderConfig {
     std::vector<uint32_t> crcInitValue;
     uint32_t deviceId;
     uint32_t decoderQueueSize;
+    int logLevel;
     bool noDeviceFallback;
     int32_t enablePostProcessFilter;
     uint32_t enableStreamDemuxing : 1;

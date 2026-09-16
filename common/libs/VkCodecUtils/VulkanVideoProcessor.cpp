@@ -40,6 +40,8 @@ VkResult VulkanVideoProcessor::Initialize(const VulkanDeviceContext* vkDevCtx,
                                           VkSharedBaseObj<VkVideoFrameOutput>& frameToFile,
                                           DecoderConfig& programConfig)
 {
+    // The library has its own Logger instance (hidden visibility), so re-apply the level here.
+    Logger::instance().setLogLevel(programConfig.logLevel);
 
     int32_t videoQueueIndx =  programConfig.queueId;
     const uint32_t loopCount = programConfig.loopCount;
