@@ -1097,12 +1097,21 @@ int VkVideoDecoder::DecodePictureWithParameters(VkParserPerFrameDecodeParameters
         }
     }
 
-    // Add setup reference slot details to decodeBeginInfo
-    decodeBeginInfo.referenceSlotCount = pCurrFrameDecParams->decodeFrameInfo.referenceSlotCount +
-                                            (pCurrFrameDecParams->decodeFrameInfo.pSetupReferenceSlot ? 1 : 0);
-    decodeBeginInfo.pReferenceSlots = (pCurrFrameDecParams->decodeFrameInfo.referenceSlotCount > 0) ?
-                                            pCurrFrameDecParams->decodeFrameInfo.pReferenceSlots :
-                                            pCurrFrameDecParams->decodeFrameInfo.pSetupReferenceSlot;
+    // The setup slot only becomes active through this decode: bind its picture resource
+    // with slotIndex -1 (VUID-vkCmdBeginVideoCodingKHR-slotIndex-07239).
+    VkVideoReferenceSlotInfoKHR beginReferenceSlots[VkParserPerFrameDecodeParameters::MAX_DPB_REF_AND_SETUP_SLOTS];
+    uint32_t beginReferenceSlotCount = pCurrFrameDecParams->decodeFrameInfo.referenceSlotCount;
+    assert(beginReferenceSlotCount < VkParserPerFrameDecodeParameters::MAX_DPB_REF_AND_SETUP_SLOTS);
+    for (uint32_t slot = 0; slot < beginReferenceSlotCount; slot++) {
+        beginReferenceSlots[slot] = pCurrFrameDecParams->decodeFrameInfo.pReferenceSlots[slot];
+    }
+    if (pCurrFrameDecParams->decodeFrameInfo.pSetupReferenceSlot != nullptr) {
+        beginReferenceSlots[beginReferenceSlotCount] = *pCurrFrameDecParams->decodeFrameInfo.pSetupReferenceSlot;
+        beginReferenceSlots[beginReferenceSlotCount].slotIndex = -1;
+        beginReferenceSlotCount++;
+    }
+    decodeBeginInfo.referenceSlotCount = beginReferenceSlotCount;
+    decodeBeginInfo.pReferenceSlots = beginReferenceSlots;
 
     m_imageSpecsIndex.displayOut = ((m_dpbAndOutputCoincide == VK_TRUE) &&
                                     !(pDecodePictureInfo->flags.applyFilmGrain == VK_TRUE)) ?
