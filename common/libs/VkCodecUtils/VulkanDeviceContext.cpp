@@ -408,16 +408,6 @@ static constexpr uint32_t g_ignoredValidationMessageIds[] = {
     // driver's pNext chain traversal. Will resolve when VVL headers are updated.
     0x901f59ec,
 
-    // VUID-vkCmdBeginVideoCodingKHR-slotIndex-07239 (MessageID = 0xc36d9e29)
-    // Cascading VVL false positive from the VUID-01762 issue above.
-    // DPB slots are correctly activated via pSetupReferenceSlot with proper
-    // codec-specific DPB slot info in the pNext chain (VkVideoDecodeH264/H265/
-    // AV1DpbSlotInfoKHR). Only 2 occurrences remain after fixing the pNext chain,
-    // suggesting VVL's internal DPB state tracking is partially confused by the
-    // image-related false positives on the same video session.
-    // Decoding works correctly on all tested hardware.
-    0xc36d9e29,
-
     // VUID-vkCmdDecodeVideoKHR-pDecodeInfo-07139 (MessageID = 0xe9634196)
     // H.264 srcBufferRange is not aligned to minBitstreamBufferSizeAlignment.
     // NVDEC's H.264 NAL scanner uses srcBufferRange to bound its start-code scan.
