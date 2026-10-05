@@ -1555,12 +1555,49 @@ int VkVideoDecoder::DecodePictureWithParameters(VkParserPerFrameDecodeParameters
             m_vkDevCtx->CmdPipelineBarrier2KHR(cmdBuf, &outputDependencyInfo);
         }
 
+        // The filter reads its input, the picture just decoded, as a storage image, which
+        // requires GENERAL. Move it there for the dispatch and back afterwards, so the tracked
+        // DPB/DST layout stays true for later decodes that reference it.
+        VkVideoPictureResourceInfoKHR inputPictureResource { VK_STRUCTURE_TYPE_VIDEO_PICTURE_RESOURCE_INFO_KHR };
+        VulkanVideoFrameBuffer::PictureResourceInfo inputResourceInfo{};
+        m_videoFrameBuffer->GetCurrentImageResourceByIndex(currPicIdx, m_imageSpecsIndex.filterIn,
+                                                           &inputPictureResource, &inputResourceInfo,
+                                                           VK_IMAGE_LAYOUT_MAX_ENUM);
+        VkImageMemoryBarrier2KHR inputBarrier = { VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2_KHR };
+        inputBarrier.srcStageMask  = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+        inputBarrier.srcAccessMask = 0;
+        inputBarrier.dstStageMask  = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT_KHR;
+        inputBarrier.dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT_KHR;
+        inputBarrier.oldLayout     = inputResourceInfo.currentImageLayout;
+        inputBarrier.newLayout     = VK_IMAGE_LAYOUT_GENERAL;
+        inputBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        inputBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        inputBarrier.image = inputResourceInfo.image;
+        inputBarrier.subresourceRange = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1,
+                                          inputResourceInfo.baseArrayLayer +
+                                              pCurrFrameDecParams->decodeFrameInfo.dstPictureResource.baseArrayLayer, 1 };
+        VkDependencyInfoKHR inputDependencyInfo = { VK_STRUCTURE_TYPE_DEPENDENCY_INFO_KHR };
+        inputDependencyInfo.imageMemoryBarrierCount = 1;
+        inputDependencyInfo.pImageMemoryBarriers = &inputBarrier;
+        m_vkDevCtx->CmdPipelineBarrier2KHR(cmdBuf, &inputDependencyInfo);
+
         result = m_yuvFilter->RecordCommandBuffer(cmdBuf,
                                                   inputImageView, &pCurrFrameDecParams->decodeFrameInfo.dstPictureResource,
                                                   outputImageView, &outputImageResource,
                                                   filterCmdBuffer->GetNodePoolIndex());
 
         assert(result == VK_SUCCESS);
+
+        // Same stage as the filter's semaphore signal, so the transition back is ordered
+        // before the decode queue waits on it.
+        inputBarrier.srcStageMask  = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT_KHR;
+        inputBarrier.srcAccessMask = 0;
+        inputBarrier.dstStageMask  = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT_KHR;
+        inputBarrier.dstAccessMask = 0;
+        inputBarrier.oldLayout     = VK_IMAGE_LAYOUT_GENERAL;
+        inputBarrier.newLayout     = inputResourceInfo.currentImageLayout;
+        m_vkDevCtx->CmdPipelineBarrier2KHR(cmdBuf, &inputDependencyInfo);
+
         result = filterCmdBuffer->EndCommandBufferRecording(cmdBuf);
         assert(result == VK_SUCCESS);
 
