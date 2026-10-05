@@ -2403,6 +2403,9 @@ bool VulkanVideoParser::DecodePicture(
         // hevc->idrPicFlag = m_slh.nal_unit_type == NUT_IDR_W_RADL ||
         // m_slh.nal_unit_type == NUT_IDR_N_LP;
         pStdPictureInfo->flags.IdrPicFlag = pin->IdrPicFlag; // Instantaneous Decoding Refresh for current picture.
+        // Without IsReference, the setup slot is invalidated instead of activated
+        // (Vulkan spec "decode-h265-ref-pic-setup").
+        pStdPictureInfo->flags.IsReference = pd->ref_pic_flag;
 
         // NumBitsForShortTermRPSInSlice = s->sh.short_term_rps ?
         // s->sh.short_term_ref_pic_set_size : 0
