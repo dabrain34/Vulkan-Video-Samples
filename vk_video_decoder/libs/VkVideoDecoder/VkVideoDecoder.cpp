@@ -1532,6 +1532,29 @@ int VkVideoDecoder::DecodePictureWithParameters(VkParserPerFrameDecodeParameters
         // beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
         VkCommandBuffer cmdBuf = filterCmdBuffer->BeginCommandBufferRecording(computeBeginInfo);
 
+        // The filter writes its output as a storage image, which requires GENERAL. The tracker
+        // was switched to GENERAL before the decode; currentFilterOutPictureResourceInfo holds
+        // the layout from before that switch, so perform the transition here.
+        if (currentFilterOutPictureResourceInfo.currentImageLayout != VK_IMAGE_LAYOUT_GENERAL) {
+            VkImageMemoryBarrier2KHR outputBarrier = { VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2_KHR };
+            outputBarrier.srcStageMask  = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+            outputBarrier.srcAccessMask = 0;
+            outputBarrier.dstStageMask  = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT_KHR;
+            outputBarrier.dstAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT_KHR;
+            outputBarrier.oldLayout     = currentFilterOutPictureResourceInfo.currentImageLayout;
+            outputBarrier.newLayout     = VK_IMAGE_LAYOUT_GENERAL;
+            outputBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+            outputBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+            outputBarrier.image = currentFilterOutPictureResourceInfo.image;
+            outputBarrier.subresourceRange = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1,
+                                               currentFilterOutPictureResourceInfo.baseArrayLayer +
+                                                   outputImageResource.baseArrayLayer, 1 };
+            VkDependencyInfoKHR outputDependencyInfo = { VK_STRUCTURE_TYPE_DEPENDENCY_INFO_KHR };
+            outputDependencyInfo.imageMemoryBarrierCount = 1;
+            outputDependencyInfo.pImageMemoryBarriers = &outputBarrier;
+            m_vkDevCtx->CmdPipelineBarrier2KHR(cmdBuf, &outputDependencyInfo);
+        }
+
         result = m_yuvFilter->RecordCommandBuffer(cmdBuf,
                                                   inputImageView, &pCurrFrameDecParams->decodeFrameInfo.dstPictureResource,
                                                   outputImageView, &outputImageResource,
