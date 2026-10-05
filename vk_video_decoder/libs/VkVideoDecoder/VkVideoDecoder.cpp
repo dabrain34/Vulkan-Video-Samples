@@ -1565,7 +1565,9 @@ int VkVideoDecoder::DecodePictureWithParameters(VkParserPerFrameDecodeParameters
         assert(result == VK_SUCCESS);
 
         // Wait for the decoder to complete.
-        const VkPipelineStageFlags2KHR waitDecoderStageMasks = VK_PIPELINE_STAGE_2_VIDEO_DECODE_BIT_KHR;
+        // This submit goes to the compute queue, which has no video-decode stage
+        // (VUID-VkSemaphoreSubmitInfo-stageMask-03929).
+        const VkPipelineStageFlags2KHR waitDecoderStageMasks = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
 
         // Signal the compute stage after done.
         const uint64_t computeCompleteTimelineValue = frameSynchronizationInfo.filterCompleteTimelineValue;
