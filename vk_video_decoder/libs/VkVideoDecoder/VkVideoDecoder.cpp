@@ -1753,6 +1753,12 @@ void VkVideoDecoder::Deinitialize()
         m_vkDevCtx->MultiThreadedQueueWaitIdle(VulkanDeviceContext::DECODE, m_currentVideoQueueIndx);
     }
 
+    if (m_yuvFilter) {
+        // The filter's last dispatch on the compute queue may still be using the
+        // frame buffer images and the filter's own objects destroyed below.
+        m_vkDevCtx->MultiThreadedQueueWaitIdle(VulkanDeviceContext::COMPUTE, 0);
+    }
+
     if (m_hwLoadBalancingTimelineSemaphore != VK_NULL_HANDLE) {
         m_vkDevCtx->DestroySemaphore(*m_vkDevCtx, m_hwLoadBalancingTimelineSemaphore, NULL);
         m_hwLoadBalancingTimelineSemaphore = VK_NULL_HANDLE;
