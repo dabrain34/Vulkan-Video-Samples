@@ -693,13 +693,13 @@ VkResult VulkanPerDrawContext::RecordCommandBuffer(VkCommandBuffer cmdBuffer,
     if (pFormatInfo == NULL) {
         setImageLayout(m_vkDevCtx, cmdBuffer, inputImageToDrawFrom->image,
                        decodeOutputLayout, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-                       VK_PIPELINE_STAGE_2_NONE_KHR, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+                       VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
                        VK_IMAGE_ASPECT_COLOR_BIT);
     } else {
         for (uint32_t planeIndx = 0; (planeIndx < (uint32_t)pFormatInfo->planesLayout.numberOfExtraPlanes + 1); planeIndx++) {
             setImageLayout(m_vkDevCtx, cmdBuffer, inputImageToDrawFrom->image,
                        decodeOutputLayout, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-                       VK_PIPELINE_STAGE_2_NONE_KHR, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+                       VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
                        (VK_IMAGE_ASPECT_PLANE_0_BIT_KHR << planeIndx));
         }
     }
@@ -956,8 +956,10 @@ void setImageLayout(const VulkanDeviceContext* vkDevCtx,
     imageMemoryBarrier.subresourceRange.baseArrayLayer = 0;
     imageMemoryBarrier.subresourceRange.layerCount = 1;
 
-    // When srcStageMask is NONE, no access mask is needed (cross-queue sync via semaphore)
-    if (srcStages != VK_PIPELINE_STAGE_2_NONE_KHR) {
+    // NONE / ALL_COMMANDS chain onto a semaphore wait, which already made the
+    // writes visible; a decode access mask would also be foreign to this queue.
+    if ((srcStages != VK_PIPELINE_STAGE_2_NONE_KHR) &&
+        (srcStages != VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT)) {
         switch ((uint32_t)oldImageLayout) {
         case VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL:
             imageMemoryBarrier.srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
