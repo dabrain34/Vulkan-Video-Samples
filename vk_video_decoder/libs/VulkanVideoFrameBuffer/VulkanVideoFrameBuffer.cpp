@@ -975,9 +975,21 @@ int32_t NvPerFrameDecodeImageSet::init(const VulkanDeviceContext* vkDevCtx,
 
     VkSemaphoreTypeCreateInfo timelineCreateInfo = {};
     timelineCreateInfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_TYPE_CREATE_INFO;
-    timelineCreateInfo.pNext = &exportInfo;
+    timelineCreateInfo.pNext = nullptr;
     timelineCreateInfo.semaphoreType = VK_SEMAPHORE_TYPE_TIMELINE;
     timelineCreateInfo.initialValue = 0ULL;
+
+    // VUID-VkExportSemaphoreCreateInfo-handleTypes-01124: only request export when the
+    // driver can export this handle type from a timeline semaphore.
+    VkPhysicalDeviceExternalSemaphoreInfo externalSemInfo = {
+        VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_EXTERNAL_SEMAPHORE_INFO, &timelineCreateInfo,
+        static_cast<VkExternalSemaphoreHandleTypeFlagBits>(exportInfo.handleTypes) };
+    VkExternalSemaphoreProperties externalSemProps = { VK_STRUCTURE_TYPE_EXTERNAL_SEMAPHORE_PROPERTIES };
+    vkDevCtx->GetPhysicalDeviceExternalSemaphoreProperties(vkDevCtx->getPhysicalDevice(),
+                                                           &externalSemInfo, &externalSemProps);
+    if (externalSemProps.externalSemaphoreFeatures & VK_EXTERNAL_SEMAPHORE_FEATURE_EXPORTABLE_BIT) {
+        timelineCreateInfo.pNext = &exportInfo;
+    }
 
     VkSemaphoreCreateInfo semInfo = { VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO, &timelineCreateInfo };
 
