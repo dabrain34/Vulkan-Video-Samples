@@ -1057,6 +1057,21 @@ int32_t NvPerFrameDecodeImageSet::init(const VulkanDeviceContext* vkDevCtx,
         m_imageSpecs[imageTypeIdx].createInfo.pNext = m_videoProfile.GetProfileListInfo();
         m_imageSpecs[imageTypeIdx].createInfo.queueFamilyIndexCount = 1;
         m_imageSpecs[imageTypeIdx].createInfo.flags = VK_IMAGE_CREATE_MUTABLE_FORMAT_BIT;
+        if (m_imageSpecs[imageTypeIdx].createInfo.usage & (VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT)) {
+            // The filter's SAMPLED/STORAGE usage is only exercised through views that restrict it,
+            // which EXTENDED_USAGE permits, if the driver accepts it for this video image
+            // (VUID-VkImageCreateInfo-pNext-06811, -imageCreateMaxMipLevels-02251).
+            const VkImageCreateInfo& createInfo = m_imageSpecs[imageTypeIdx].createInfo;
+            const VkPhysicalDeviceImageFormatInfo2 formatInfo = {
+                VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_IMAGE_FORMAT_INFO_2, createInfo.pNext,
+                createInfo.format, createInfo.imageType, createInfo.tiling, createInfo.usage,
+                createInfo.flags | VK_IMAGE_CREATE_EXTENDED_USAGE_BIT };
+            VkImageFormatProperties2 formatProperties = { VK_STRUCTURE_TYPE_IMAGE_FORMAT_PROPERTIES_2 };
+            if (vkDevCtx->GetPhysicalDeviceImageFormatProperties2(vkDevCtx->getPhysicalDevice(), &formatInfo,
+                                                                  &formatProperties) == VK_SUCCESS) {
+                m_imageSpecs[imageTypeIdx].createInfo.flags |= VK_IMAGE_CREATE_EXTENDED_USAGE_BIT;
+            }
+        }
         m_imageSpecs[imageTypeIdx].createInfo.pQueueFamilyIndices = &m_queueFamilyIndex;
         m_imageSpecs[imageTypeIdx].usesImageViewArray = usesImageViewArray;
         m_imageSpecs[imageTypeIdx].usesImageArray = usesImageArray;
