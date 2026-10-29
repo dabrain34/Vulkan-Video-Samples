@@ -116,11 +116,16 @@ VkResult VulkanVideoProcessor::Initialize(const VulkanDeviceContext* vkDevCtx,
     }
     m_vkVideoDecoder->SetVerbose(programConfig.verbose);
     m_vkVideoDecoder->SetDryRun(programConfig.dryRun);
+    if (programConfig.inlineSessionParameters &&
+        !vkDevCtx->GetVideoMaintenance2Enabled()) {
+        fprintf(stderr, "\nERROR: --inlineParams requires the videoMaintenance2 feature\n");
+        return VK_ERROR_FEATURE_NOT_PRESENT;
+    }
     const uint32_t defaultMinBufferSize = 2 * 1024 * 1024; // 2MB
     result = CreateParser(nullptr,
                           m_videoStreamDemuxer->GetVideoCodec(),
                           defaultMinBufferSize,
-                          programConfig.inlineSessionParameters != 0);
+                          programConfig.inlineSessionParameters);
     if (result != VK_SUCCESS) {
         fprintf(stderr, "\nERROR: CreateParser() result: 0x%x\n", result);
         return result;

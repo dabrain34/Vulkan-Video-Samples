@@ -286,7 +286,7 @@ int32_t VkVideoDecoder::StartVideoSequence(VkParserDetectedVideoFormat* pVideoFo
         sessionCreateFlags |= VK_VIDEO_SESSION_CREATE_INLINE_QUERIES_BIT_KHR;
     }
 #endif // VK_KHR_video_maintenance1
-    if (VulkanVideoCapabilities::GetVideoMaintenance2FeatureSupported(m_vkDevCtx)) {
+    if (m_vkDevCtx->GetVideoMaintenance2Enabled()) {
         sessionCreateFlags |= VK_VIDEO_SESSION_CREATE_INLINE_SESSION_PARAMETERS_BIT_KHR;
     }
 

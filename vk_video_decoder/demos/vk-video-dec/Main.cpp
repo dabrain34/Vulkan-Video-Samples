@@ -62,7 +62,8 @@ int main(int argc, const char **argv)
                                                decoderConfig.validate,
                                                decoderConfig.validateVerbose,
                                                decoderConfig.verbose,
-                                               decoderConfig.inlineSessionParameters != 0);
+                                               nullptr, // pCustomLoader
+                                               decoderConfig.inlineSessionParameters);
 
     if (result != VK_SUCCESS) {
         if (IsVideoUnsupportedResult(result)) {

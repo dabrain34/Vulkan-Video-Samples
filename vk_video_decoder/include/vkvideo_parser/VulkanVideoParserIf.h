@@ -501,8 +501,8 @@ typedef struct VkParserInitDecodeParameters {
     VkParserSequenceInfo* pExternalSeqInfo;  // optional external sequence header
                                              // data from system layer
 
-    // If true, use VK_KHR_video_maintenance2 inline session parameters on decode (requires device support).
-    bool inlineSessionParameters;
+    // If set, Picture Parameters are going to be provided via UpdatePictureParameters callback
+    bool outOfBandPictureParameters;
     bool isAnnexB;
 } VkParserInitDecodeParameters;
 

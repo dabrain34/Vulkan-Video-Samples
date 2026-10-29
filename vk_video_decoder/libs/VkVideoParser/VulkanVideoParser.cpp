@@ -134,7 +134,6 @@ struct nvVideoH265PicParameters {
     StdVideoDecodeH265PictureInfo stdPictureInfo;
     VkVideoDecodeH265PictureInfoKHR pictureInfo;
     VkVideoDecodeH265InlineSessionParametersInfoKHR inlineSessionParameters {};
-    nvVideoDecodeH265DpbSlotInfo currentDpbSlotInfo;
     nvVideoDecodeH265DpbSlotInfo dpbRefList[MAX_REF_PICTURES_LIST_ENTRIES];
 };
 
@@ -172,7 +171,6 @@ struct nvVideoAV1PicParameters {
     StdVideoDecodeAV1PictureInfo stdPictureInfo; // memory for the pointer in pictureInfo
     VkVideoDecodeAV1PictureInfoKHR pictureInfo;
     VkVideoDecodeAV1InlineSessionParametersInfoKHR inlineSessionParameters {};
-    nvVideoDecodeAV1DpbSlotInfo currentDpbSlotInfo;
     nvVideoDecodeAV1DpbSlotInfo dpbRefList[nvVideoDecodeAV1DpbSlotInfo::TOTAL_REFS_PER_FRAME + 1];
 };
 
@@ -976,7 +974,7 @@ VkResult VulkanVideoParser::Initialize(
 
     nvdp.referenceClockRate = m_clockRate;
     nvdp.errorThreshold = errorThreshold;
-    nvdp.inlineSessionParameters = m_inlineSessionParameters;
+    nvdp.outOfBandPictureParameters = !m_inlineSessionParameters;
     nvdp.isAnnexB = false;
 
     static const VkExtensionProperties h264StdExtensionVersion = { VK_STD_VULKAN_VIDEO_CODEC_H264_DECODE_EXTENSION_NAME, VK_STD_VULKAN_VIDEO_CODEC_H264_DECODE_SPEC_VERSION };

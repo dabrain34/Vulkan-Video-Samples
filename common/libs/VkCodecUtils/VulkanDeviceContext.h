@@ -118,6 +118,7 @@ public:
         }
     }
     bool GetVideoEncodeFeedback2Enabled() const { return m_videoEncodeFeedback2Enabled; }
+    bool GetVideoMaintenance2Enabled() const { return m_videoMaintenance2Enabled; }
     class MtQueueMutex {
 
     public:
@@ -270,8 +271,8 @@ public:
                                      bool enableValidation = false,
                                      bool enableVerboseValidation = false,
                                      bool enbaleVerboseDump = false,
-                                     bool enableInlineSessionParameters = false,
-                                     const char * pCustomLoader = nullptr);
+                                     const char * pCustomLoader = nullptr,
+                                     bool enableInlineSessionParameters = false);
 
     VkResult AddReqInstanceLayers(const char* const* requiredInstanceLayers, bool verbose = false);
     VkResult CheckAllInstanceLayers(bool verbose = false);
@@ -350,6 +351,7 @@ private:
     uint32_t m_videoDecodeQueryResultStatusSupport : 1;
     uint32_t m_videoEncodeQueryResultStatusSupport : 1;
     uint32_t m_videoEncodeFeedback2Enabled : 1;
+    uint32_t m_videoMaintenance2Enabled : 1;
     VkDevice                m_device;
     VkQueue                 m_gfxQueue;
     VkQueue                 m_computeQueue;

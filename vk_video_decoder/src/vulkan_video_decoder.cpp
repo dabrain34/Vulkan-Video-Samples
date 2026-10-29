@@ -154,7 +154,8 @@ VkResult VulkanVideoDecoderImpl::Initialize(VkInstance vkInstance,
                                                           m_decoderConfig.validate,
                                                           m_decoderConfig.validateVerbose,
                                                           m_decoderConfig.verbose,
-                                                          m_decoderConfig.inlineSessionParameters != 0);
+                                                          nullptr, // pCustomLoader
+                                                          m_decoderConfig.inlineSessionParameters);
 
     if (result != VK_SUCCESS) {
         printf("Could not initialize the Vulkan decoder device!\n");

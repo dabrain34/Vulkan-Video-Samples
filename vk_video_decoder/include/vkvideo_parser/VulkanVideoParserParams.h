@@ -53,7 +53,7 @@ struct VkParserPerFrameDecodeParameters {
     uint32_t numGopReferenceSlots;
     int8_t pGopReferenceImagesIndexes[MAX_DPB_REF_AND_SETUP_SLOTS];
     VkVideoPictureResourceInfoKHR pictureResources[MAX_DPB_REF_AND_SETUP_SLOTS];
-    uint32_t useInlinedPictureParameters : 1; // maintenance2 inline params on VkVideoDecode*PictureInfoKHR::pNext
+    uint32_t useInlinedPictureParameters : 1; // maintenance2 inline params in the VkVideoDecodeInfoKHR pNext chain
 };
 
 struct VkParserFrameSyncinfo {
