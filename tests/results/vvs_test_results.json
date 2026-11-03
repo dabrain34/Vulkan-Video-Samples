@@ -311,7 +311,7 @@
       "decode_av1_svc_l1t2_8bit": "success",
       "decode_av1_argon_test1019": "not_supported",
       "decode_av1_argon_test787": "not_supported",
-      "decode_av1_argon_test9354_2": "not_supported",
+      "decode_av1_argon_test9354_2": "skipped",
       "decode_av1_sizeup_fluster": "success",
       "decode_av1_720x480_tile_group": "success",
       "decode_av1_frames_golden": "success",
